@@ -76,12 +76,16 @@ describe('POST /api/auth/register', () => {
     expect(res.body.error.code).toBe('PHONE_TAKEN');
   });
 
-  it.each([
+  // Annotated because the last case deliberately omits `name`; without it
+  // TypeScript cannot unify the row shapes into one tuple type.
+  const invalidBodies: Array<[Record<string, string>, string]> = [
     [{ name: 'م', phone: '0554128830', password: 'Test@12345' }, 'name too short'],
     [{ name: 'مضيف', phone: '05012345', password: 'Test@12345' }, 'phone too short'],
     [{ name: 'مضيف', phone: '0554128830', password: 'short' }, 'password too short'],
     [{ phone: '0554128830', password: 'Test@12345' }, 'name missing'],
-  ])('rejects invalid input (%#: %s)', async (body) => {
+  ];
+
+  it.each(invalidBodies)('rejects invalid input (%#: %s)', async (body) => {
     const res = await request(app).post('/api/auth/register').send(body);
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
