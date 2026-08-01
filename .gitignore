@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+
+# Prisma generated client
+apps/api/node_modules/.prisma/
+apps/api/src/generated/
+
+# Uploads (local dev)
+apps/api/uploads/

@@ -1,0 +1,22 @@
+{
+  "brand.name": "دعوة",
+  "brand.tagline": "منصة سعودية للدعوات الرقمية وإدارة حضور المناسبات.",
+
+  "nav.howItWorks": "كيف تعمل",
+  "nav.templates": "القوالب",
+  "nav.pricing": "الأسعار",
+  "nav.faq": "الأسئلة الشائعة",
+  "nav.login": "تسجيل الدخول",
+  "nav.start": "ابدأ مناسبتك",
+
+  "status.NOT_SENT": "لم تُرسل",
+  "status.SENT": "أُرسلت",
+  "status.OPENED": "فُتحت",
+  "status.CONFIRMED": "مؤكّد",
+  "status.DECLINED": "معتذر",
+  "status.ATTENDED": "حضر فعليًا",
+
+  "scaffold.title": "الأساس جاهز",
+  "scaffold.subtitle": "المرحلة الأولى: قاعدة البيانات والمصادقة. الشاشات تأتي في المراحل التالية.",
+  "scaffold.tokens": "ألوان حالات الضيف"
+}

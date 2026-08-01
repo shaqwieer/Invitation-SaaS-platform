@@ -1,0 +1,22 @@
+{
+  "brand.name": "Da3wa",
+  "brand.tagline": "A Saudi platform for digital invitations and event attendance.",
+
+  "nav.howItWorks": "How it works",
+  "nav.templates": "Templates",
+  "nav.pricing": "Pricing",
+  "nav.faq": "FAQ",
+  "nav.login": "Log in",
+  "nav.start": "Start your event",
+
+  "status.NOT_SENT": "Not sent",
+  "status.SENT": "Sent",
+  "status.OPENED": "Opened",
+  "status.CONFIRMED": "Confirmed",
+  "status.DECLINED": "Declined",
+  "status.ATTENDED": "Attended",
+
+  "scaffold.title": "Foundation ready",
+  "scaffold.subtitle": "Phase 1: schema and auth. Screens land in the phases that follow.",
+  "scaffold.tokens": "Guest status colours"
+}

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background: theme('colors.board');
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    color: theme('colors.ink.DEFAULT');
+    font-family: theme('fontFamily.sans');
+  }
+
+  /*
+   * Arabic body copy needs the extra leading for diacritics and dots, and
+   * letter-spacing must never be applied to it — Arabic letters join, so
+   * tracking visually breaks words apart.
+   */
+  [dir='rtl'] {
+    letter-spacing: normal !important;
+  }
+
+  /*
+   * Phone numbers, dates and codes stay left-to-right inside an RTL page.
+   * The design's §02 note: "الأرقام تُكتب يسارًا-يمينًا حتى في العربية".
+   */
+  .ltr-nums {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-family: theme('fontFamily.latin');
+  }
+
+  ::selection {
+    background: #cfe3d9;
+  }
+}

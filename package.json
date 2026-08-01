@@ -1,0 +1,37 @@
+{
+  "name": "da3wa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "دعوة — Arabic-first digital event invitation SaaS",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm -w @da3wa/api run dev",
+    "dev:web": "npm -w @da3wa/web run dev",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "prisma generate --schema=apps/api/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=apps/api/prisma/schema.prisma",
+    "db:deploy": "prisma migrate deploy --schema=apps/api/prisma/schema.prisma",
+    "db:reset": "prisma migrate reset --force --schema=apps/api/prisma/schema.prisma",
+    "db:seed": "tsx --env-file-if-exists=.env apps/api/prisma/seed.ts",
+    "db:studio": "prisma studio --schema=apps/api/prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "eslint": "^8.57.1",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,81 @@
+# Local development stack: postgres + api + web.
+# Production images are built from apps/*/Dockerfile — see README "Deploying to a VPS".
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: da3wa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-da3wa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-da3wa_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-da3wa}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Without -d the check runs against the default "postgres" db and passes
+      # before our database is actually ready to accept connections.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-da3wa} -d ${POSTGRES_DB:-da3wa}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: development
+    container_name: da3wa-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-da3wa}:${POSTGRES_PASSWORD:-da3wa_dev_password}@postgres:5432/${POSTGRES_DB:-da3wa}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+      QR_HMAC_SECRET: ${QR_HMAC_SECRET:-dev_qr_hmac_secret_change_me}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      SMS_PROVIDER: ${SMS_PROVIDER:-console}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-stub}
+    ports:
+      - '4000:4000'
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages/shared:/app/packages/shared
+      # Anonymous volumes keep container-installed node_modules from being
+      # shadowed by the host bind mount above.
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    command: sh -c "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && npm -w @da3wa/api run dev"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    container_name: da3wa-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: development
+      # Browser-side calls go to the host-published port, not the compose network.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      # Server-side (RSC) calls resolve over the compose network instead.
+      API_INTERNAL_URL: http://api:4000
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages/shared:/app/packages/shared
+      - /app/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/web/.next
+
+volumes:
+  postgres_data:

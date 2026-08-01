@@ -1,0 +1,538 @@
+// دعوة / Da3wa — domain model.
+//
+// Mirrors packages/shared/src/enums.ts. Money is always integer halalas
+// (1 SAR = 100 halalas); tax rates are integer basis points (1500 = 15%).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  HOST
+  ADMIN
+}
+
+enum Locale {
+  ar
+  en
+}
+
+enum EventType {
+  WEDDING
+  ENGAGEMENT
+  GRADUATION
+  CORPORATE
+  OTHER
+}
+
+enum EventStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+/// «قائمة واحدة» vs «رجال / نساء» — the top package sells split guest lists.
+enum SectionMode {
+  SINGLE
+  SPLIT
+}
+
+enum GuestSection {
+  MEN
+  WOMEN
+}
+
+/// NOT_SENT → SENT → OPENED → CONFIRMED | DECLINED → ATTENDED.
+/// OPENED is observational, not a gate: SENT → CONFIRMED is legal.
+enum GuestStatus {
+  NOT_SENT
+  SENT
+  OPENED
+  CONFIRMED
+  DECLINED
+  ATTENDED
+}
+
+enum CheckInMethod {
+  QR
+  MANUAL
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  MADA
+  CREDIT_CARD
+  APPLE_PAY
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum OtpPurpose {
+  LOGIN
+  VERIFY_PHONE
+  RESET_PASSWORD
+}
+
+enum ActorType {
+  USER
+  SCAN_USER
+  SYSTEM
+}
+
+// ─── Identity & auth ─────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  /// E.164, normalized on the way in. Unique because it is the login identifier.
+  phone        String   @unique
+  passwordHash String
+  role         UserRole @default(HOST)
+  locale       Locale   @default(ar)
+  phoneVerifiedAt DateTime?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  events          Event[]
+  refreshTokens   RefreshToken[]
+  orders          Order[]
+  revokedCheckIns CheckIn[]      @relation("CheckInRevokedBy")
+
+  @@index([role])
+}
+
+/// One row per issued refresh token.
+///
+/// Rotation: presenting a token revokes it and issues a successor in the same
+/// `family`. Presenting an *already revoked* token means it leaked, so the whole
+/// family is revoked at once — a stolen token cannot outlive its own first reuse.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  /// SHA-256 of the token. The raw value only ever exists in the cookie.
+  tokenHash String   @unique
+  /// Shared by every token descended from one login.
+  family    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  /// Set when this token was rotated normally, for chain forensics.
+  replacedByTokenId String?
+  userAgent String?
+  ip        String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([family])
+  @@index([expiresAt])
+}
+
+model OtpCode {
+  id        String     @id @default(cuid())
+  /// E.164. Not a User relation — OTP can precede account creation.
+  phone     String
+  codeHash  String
+  purpose   OtpPurpose @default(LOGIN)
+  expiresAt DateTime
+  consumedAt DateTime?
+  /// Verification attempts against this code; the code dies after a few.
+  attempts  Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  @@index([phone, purpose, createdAt])
+  @@index([expiresAt])
+}
+
+// ─── Catalogue ───────────────────────────────────────────────────────────────
+
+model Package {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  nameAr         String
+  nameEn         String
+  /// Maximum guests an event on this package may hold. Enforced, not decorative.
+  guestCap       Int
+  priceHalalas   Int
+  /// How many concurrent scanner sessions the package allows.
+  scannerSeats   Int      @default(1)
+  featuresAr     String[]
+  featuresEn     String[]
+  isHighlighted  Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  events Event[]
+  orders Order[]
+}
+
+model Template {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  nameAr          String
+  nameEn          String
+  category        EventType @default(WEDDING)
+  previewImageUrl String?
+  /// Charged on top of the package (the design's +١٩٩ custom-design addon).
+  priceHalalas    Int      @default(0)
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  events Event[]
+}
+
+// ─── Events & guests ─────────────────────────────────────────────────────────
+
+model Event {
+  id     String @id @default(cuid())
+  hostId String
+
+  title       String
+  type        EventType   @default(WEDDING)
+  status      EventStatus @default(DRAFT)
+  sectionMode SectionMode @default(SINGLE)
+
+  startsAt DateTime
+  endsAt   DateTime?
+  /// IANA zone. Hijri dates are derived from startsAt at render time, never stored.
+  timezone String   @default("Asia/Riyadh")
+
+  /// «اسم صاحب الدعوة» and «الاسم الثاني» — both appear on the card.
+  hostName    String
+  partnerName String?
+
+  venueName    String?
+  venueAddress String?
+  venueLat     Float?
+  venueLng     Float?
+  venueMapUrl  String?
+
+  templateId    String?
+  cardColor     String  @default("#0E5A45")
+  cardTitleFont String  @default("amiri")
+  /// Set when the host uploaded their own artwork instead of picking a template.
+  customCardUrl String?
+
+  /// Guests may change their answer until this moment.
+  rsvpDeadline DateTime?
+  /// Default companion allowance applied to newly added guests.
+  defaultCompanionsAllowed Int @default(0)
+
+  /// Shared door password. Null until the host sets one; the scanner gate is
+  /// closed while it is null.
+  scannerPasswordHash String?
+
+  packageId String?
+  /// Overrides the package cap when support grants extra headroom.
+  guestCapOverride Int?
+
+  /// WhatsApp message body. {{name}} and {{url}} are substituted per guest.
+  whatsappTemplateAr String @default("يشرّفنا حضوركم {{name}}… دعوتكم الخاصة:\n{{url}}")
+  whatsappTemplateEn String @default("You're invited, {{name}}. Your personal invitation:\n{{url}}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  host      User      @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  template  Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  package   Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  guests      Guest[]
+  invitations Invitation[]
+  rsvps       RsvpResponse[]
+  checkIns    CheckIn[]
+  scanUsers   ScanUser[]
+  orders      Order[]
+  auditLogs   AuditLog[]
+
+  @@index([hostId, startsAt])
+  @@index([status, startsAt])
+}
+
+model Guest {
+  id      String @id @default(cuid())
+  eventId String
+
+  name String
+  /// E.164. Unique per event — this is what makes import duplicate detection real.
+  phone String
+
+  /// «عائلة العريس» / «صديقات العروس» / «زملاء العمل» — an import column, and the
+  /// axis of the post-event per-group attendance breakdown.
+  group   String?
+  section GuestSection?
+
+  companionsAllowed   Int         @default(0)
+  /// Chosen by the guest at RSVP time, in the same write as the confirmation.
+  companionsConfirmed Int         @default(0)
+  status              GuestStatus @default(NOT_SENT)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event      Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  invitation Invitation?
+  rsvps      RsvpResponse[]
+  checkIns   CheckIn[]
+
+  @@unique([eventId, phone])
+  @@index([eventId, status])
+  @@index([eventId, group])
+  @@index([eventId, updatedAt])
+}
+
+/// The guest's public link and door credentials.
+///
+/// Two identifiers on purpose:
+///   token       — unguessable nanoid, the /invite/[token] URL. Globally unique.
+///   displayCode — short human code ("4821-77") the door staff can type when a
+///                 phone screen is cracked. Unique *within an event only*; six
+///                 characters would collide constantly if it were global, and the
+///                 scanner never resolves one outside its own event.
+model Invitation {
+  id      String @id @default(cuid())
+  guestId String @unique
+  /// Denormalized from Guest so displayCode can be scoped and scanner lookups
+  /// can hit one index.
+  eventId String
+
+  token       String @unique
+  displayCode String
+
+  sentAt      DateTime?
+  openedAt    DateTime?
+  respondedAt DateTime?
+  /// Bumped whenever the QR is (re)issued, so an old screenshot can be aged out.
+  qrIssuedAt  DateTime?
+
+  remindersSent Int      @default(0)
+  lastReminderAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, displayCode])
+  @@index([eventId, sentAt])
+}
+
+/// Append-only RSVP history. Guest.status is the current projection of this.
+model RsvpResponse {
+  id      String @id @default(cuid())
+  guestId String
+  eventId String
+
+  attending  Boolean
+  /// Companion count as answered — captured in the same write as `attending`.
+  companions Int      @default(0)
+  respondedAt DateTime @default(now())
+
+  /// Hashed, not raw — we only need it to spot abuse, never to identify a guest.
+  ipHash    String?
+  userAgent String?
+
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([guestId, respondedAt])
+  @@index([eventId, respondedAt])
+}
+
+/// A door scanner session.
+///
+/// Created when someone passes the event password at the gate and names
+/// themselves («سعود · بوابة الرجال»). Every check-in is attributed to one of
+/// these, so an override is always traceable to a person on shift.
+model ScanUser {
+  id      String @id @default(cuid())
+  eventId String
+
+  displayName      String
+  sessionTokenHash String @unique
+
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  userAgent  String?
+  ip         String?
+
+  event    Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  checkIns CheckIn[]
+
+  @@index([eventId, createdAt])
+}
+
+/// A guest passing through the door.
+///
+/// A second scan of the same code does NOT create a row — the scanner reports
+/// USED and shows the existing check-in. Admitting anyway is an explicit
+/// override: it writes a second row with isOverride = true, pointing at the
+/// original via overrideOfId and stamped with the scanner who decided.
+///
+/// The migration adds a partial unique index enforcing at most one live
+/// non-override check-in per guest, so a double-write cannot slip through a race.
+model CheckIn {
+  id      String @id @default(cuid())
+  guestId String
+  eventId String
+
+  /// Seats admitted on this scan (guest + companions).
+  seats     Int           @default(1)
+  scannedAt DateTime      @default(now())
+  method    CheckInMethod @default(QR)
+
+  scannedById String
+
+  isOverride   Boolean @default(false)
+  overrideOfId String?
+  /// Why the scanner admitted a already-used code.
+  reason       String?
+
+  revokedAt   DateTime?
+  revokedById String?
+
+  createdAt DateTime @default(now())
+
+  guest      Guest     @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  scannedBy  ScanUser  @relation(fields: [scannedById], references: [id], onDelete: Restrict)
+  revokedBy  User?     @relation("CheckInRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  overrideOf CheckIn?  @relation("CheckInOverride", fields: [overrideOfId], references: [id], onDelete: SetNull)
+  overrides  CheckIn[] @relation("CheckInOverride")
+
+  @@index([eventId, scannedAt])
+  @@index([guestId])
+}
+
+// ─── Commerce ────────────────────────────────────────────────────────────────
+
+model Order {
+  id          String @id @default(cuid())
+  /// DW-2026-4821
+  orderNumber String @unique
+
+  userId    String
+  eventId   String?
+  packageId String?
+
+  status OrderStatus    @default(PENDING)
+  method PaymentMethod?
+
+  /// Frozen copy of what was bought — prices must not move when the catalogue does.
+  lineItems Json
+
+  subtotalHalalas Int
+  discountHalalas Int @default(0)
+  /// Basis points: 1500 = 15%.
+  vatRateBps      Int @default(1500)
+  vatHalalas      Int
+  totalHalalas    Int
+  currency        String @default("SAR")
+
+  provider    String  @default("stub")
+  providerRef String?
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event    Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  package  Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  payments Payment[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model Payment {
+  id      String @id @default(cuid())
+  orderId String
+
+  provider          String
+  providerPaymentId String?
+  amountHalalas     Int
+  status            PaymentStatus @default(PENDING)
+  failureReason     String?
+  rawPayload        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([providerPaymentId])
+}
+
+/// Inbox for gateway callbacks.
+///
+/// (provider, providerEventId) is unique so a gateway retrying a webhook — which
+/// they all do — cannot double-apply a payment.
+model WebhookEvent {
+  id              String @id @default(cuid())
+  provider        String
+  providerEventId String
+  type            String
+  payload         Json
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@unique([provider, providerEventId])
+  @@index([processedAt])
+}
+
+// ─── Audit ───────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String    @id @default(cuid())
+  actorType ActorType @default(USER)
+  actorId   String?
+  eventId   String?
+
+  action     String
+  targetType String?
+  targetId   String?
+  meta       Json?
+  ip         String?
+
+  createdAt DateTime @default(now())
+
+  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+  @@index([actorType, actorId])
+  @@index([action, createdAt])
+}

@@ -1,0 +1,33 @@
+# Production overlay. Apply on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Switches both apps to their production build targets and drops the source bind
+# mounts, so containers run the built artefacts rather than the working tree.
+services:
+  postgres:
+    # Not published to the host: only the API needs it, over the compose network.
+    ports: !override []
+
+  api:
+    build:
+      target: production
+    environment:
+      NODE_ENV: production
+      # Required behind nginx — without it every request reports the proxy's IP
+      # and all callers share a single rate-limit bucket.
+      TRUST_PROXY: 1
+    volumes: !override []
+    # The image's CMD already runs `prisma migrate deploy` before starting.
+    command: !reset null
+    ports:
+      - '127.0.0.1:4000:4000'
+
+  web:
+    build:
+      target: production
+    environment:
+      NODE_ENV: production
+    volumes: !override []
+    ports:
+      - '127.0.0.1:3000:3000'
