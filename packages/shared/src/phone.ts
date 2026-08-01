@@ -121,12 +121,17 @@ function validateNational(national: string, rule: CountryRule): PhoneErrorReason
  * @param defaultCountry Country assumed when the input carries no dial code.
  */
 export function normalizePhone(raw: string, defaultCountry: CountryCode = 'SA'): PhoneResult {
-  if (raw == null) return { ok: false, reason: 'EMPTY' };
+  if (raw === null || raw === undefined) return { ok: false, reason: 'EMPTY' };
 
-  // Arabic-Indic digits first, then drop the punctuation people use as separators:
-  // spaces, dashes, dots, parentheses, and RTL/LTR marks that Excel loves to inject.
+  // Arabic-Indic digits first, then drop everything people and spreadsheets use
+  // as separators. The escaped codepoints are invisible characters Excel injects
+  // around numbers in Arabic locales — written as escapes because a literal copy
+  // is unreadable in source and trivial to delete by accident:
+  //   200E / 200F  left-to-right and right-to-left marks
+  //   061C         Arabic letter mark
+  //   00A0         non-breaking space
   const western = toWesternDigits(String(raw));
-  const cleaned = western.replace(/[\s\-().‎‏؜ ]/g, '');
+  const cleaned = western.replace(/[\s\-().\u200E\u200F\u061C\u00A0]/g, '');
 
   if (cleaned.length === 0) return { ok: false, reason: 'EMPTY' };
   if (!/^\+?\d+$/.test(cleaned)) return { ok: false, reason: 'INVALID_CHARACTERS' };
