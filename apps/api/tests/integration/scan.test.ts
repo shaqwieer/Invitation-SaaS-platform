@@ -157,7 +157,7 @@ describe('the gate', () => {
     expect(res.body.error.code).toBe('SCAN_GATE_REJECTED');
   });
 
-  it('rate limits password attempts', async () => {
+  it('rate limits wrong-password attempts', async () => {
     const strict = createApp({ rateLimits: { scanGate: { windowMs: 60_000, limit: 3 } } });
 
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -171,6 +171,55 @@ describe('the gate', () => {
       .post(`/api/scan/gate/${event.id}`)
       .send({ password: 'wrong' });
     expect(blocked.status).toBe(429);
+  });
+
+  it('does not spend the brute-force budget on correct opens', async () => {
+    // Every staff member at a venue shares one WiFi address. If a successful
+    // open consumed budget, a handful of legitimate logins would lock the door
+    // out for the rest of the night.
+    const strict = createApp({ rateLimits: { scanGate: { windowMs: 60_000, limit: 3 } } });
+    const venue = '203.0.113.50';
+
+    for (let staff = 1; staff <= 8; staff++) {
+      const res = await request(strict)
+        .post(`/api/scan/gate/${event.id}`)
+        .set('X-Forwarded-For', venue)
+        .send({ password: DOOR_PASSWORD, displayName: `موظف ${staff}` });
+
+      expect(res.status, `staff ${staff}`).toBe(201);
+    }
+  });
+
+  it('keeps one event’s lockout off another door at the same venue', async () => {
+    const strict = createApp({ rateLimits: { scanGate: { windowMs: 60_000, limit: 2 } } });
+    const venue = '203.0.113.51';
+
+    const other = await createEvent(host.user.id);
+    await prisma.event.update({
+      where: { id: other.id },
+      data: { scannerPasswordHash: await argonHash(DOOR_PASSWORD) },
+    });
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await request(strict)
+        .post(`/api/scan/gate/${event.id}`)
+        .set('X-Forwarded-For', venue)
+        .send({ password: 'wrong' })
+        .expect(401);
+    }
+    await request(strict)
+      .post(`/api/scan/gate/${event.id}`)
+      .set('X-Forwarded-For', venue)
+      .send({ password: 'wrong' })
+      .expect(429);
+
+    // A wedding in the next hall must not inherit that lockout.
+    const neighbour = await request(strict)
+      .post(`/api/scan/gate/${other.id}`)
+      .set('X-Forwarded-For', venue)
+      .send({ password: DOOR_PASSWORD });
+
+    expect(neighbour.status).toBe(201);
   });
 
   it('refuses every scan route without a session', async () => {

@@ -91,6 +91,12 @@ export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
  * USED never writes a CheckIn — it reports the existing one. Admitting the guest
  * anyway is a separate, explicitly-authorized override that writes a second
  * CheckIn attributed to the scanner who made the call.
+ *
+ * There is deliberately no REVOKED verdict. Revoking a check-in returns the
+ * guest to CONFIRMED, so their next scan is simply VALID again — which is the
+ * entire point of revoking. A verdict for it would be unreachable, and an
+ * unreachable branch in a verdict table is what a later maintainer wires up
+ * wrongly.
  */
 export const ScanVerdict = {
   VALID: 'VALID',
@@ -98,7 +104,6 @@ export const ScanVerdict = {
   INVALID: 'INVALID',
   WRONG_EVENT: 'WRONG_EVENT',
   NOT_CONFIRMED: 'NOT_CONFIRMED',
-  REVOKED: 'REVOKED',
 } as const;
 export type ScanVerdict = (typeof ScanVerdict)[keyof typeof ScanVerdict];
 

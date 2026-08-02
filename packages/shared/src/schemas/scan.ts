@@ -53,13 +53,14 @@ export const scanSearchSchema = z.object({
 });
 export type ScanSearchInput = z.infer<typeof scanSearchSchema>;
 
+/** No REVOKED: a revoked check-in makes the guest admittable again, so the next
+ *  scan is VALID. See the note on ScanVerdict in enums.ts. */
 export const scanVerdictSchema = z.enum([
   'VALID',
   'USED',
   'INVALID',
   'WRONG_EVENT',
   'NOT_CONFIRMED',
-  'REVOKED',
 ]);
 export type ScanVerdictValue = z.infer<typeof scanVerdictSchema>;
 

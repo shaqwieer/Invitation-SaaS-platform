@@ -46,17 +46,30 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   general: { windowMs: 15 * MINUTE, limit: 300 },
 };
 
+interface KeyedRequest {
+  get(name: string): string | undefined;
+  ip?: string | undefined;
+  params?: Record<string, string | undefined>;
+}
+
+interface BuildOptions {
+  keyGenerator?: (req: KeyedRequest) => string;
+  /** Count only failures — used where success is a legitimate, repeated action. */
+  failuresOnly?: boolean;
+}
+
 function build(
   rule: RateLimitRule,
   code: string,
-  keyGenerator?: (req: { get(name: string): string | undefined; ip?: string }) => string,
+  options: BuildOptions = {},
 ): RateLimitRequestHandler {
   return rateLimit({
     windowMs: rule.windowMs,
     limit: rule.limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    ...(keyGenerator ? { keyGenerator: keyGenerator as never } : {}),
+    ...(options.keyGenerator ? { keyGenerator: options.keyGenerator as never } : {}),
+    ...(options.failuresOnly ? { skipSuccessfulRequests: true } : {}),
     // Route through the app's error pipeline so the body shape matches every
     // other error the client has to handle.
     handler: (_req, _res, next) => {
@@ -90,14 +103,29 @@ export function createRateLimiters(config: RateLimitConfig = DEFAULT_RATE_LIMITS
     inviteLookup: build(config.inviteLookup, 'INVITE_RATE_LIMITED'),
     rsvp: build(config.rsvp, 'RSVP_RATE_LIMITED'),
     fileImport: build(config.fileImport, 'IMPORT_RATE_LIMITED'),
-    scan: build(
-      config.scan,
-      'SCAN_RATE_LIMITED',
-      (req) =>
-        // Per door session, so one busy gate cannot starve another at the same venue.
-        req.get('x-scan-session') ?? req.ip ?? 'unknown',
-    ),
-    scanGate: build(config.scanGate, 'SCAN_GATE_RATE_LIMITED'),
+    scan: build(config.scan, 'SCAN_RATE_LIMITED', {
+      // Per door session, so one busy gate cannot starve another at the same venue.
+      keyGenerator: (req) => req.get('x-scan-session') ?? req.ip ?? 'unknown',
+    }),
+
+    /**
+     * The gate is a password endpoint, so it needs brute-force protection — but
+     * a naive IP budget locks the door out mid-event. Every staff member at a
+     * venue shares one WiFi address, so a handful of legitimate opens exhausts
+     * it, and a *second* event at the same venue inherits the lockout.
+     *
+     * Two adjustments make it survivable without weakening it:
+     *   - only failures count, so opening the gate correctly is free however
+     *     many times staff do it across a night;
+     *   - the key includes the event, so one venue cannot lock out another's door.
+     *
+     * What remains capped is exactly what should be: wrong-password attempts
+     * against one event from one address.
+     */
+    scanGate: build(config.scanGate, 'SCAN_GATE_RATE_LIMITED', {
+      failuresOnly: true,
+      keyGenerator: (req) => `${req.ip ?? 'unknown'}:${req.params?.eventId ?? 'none'}`,
+    }),
     general: build(config.general, 'RATE_LIMITED'),
   };
 }

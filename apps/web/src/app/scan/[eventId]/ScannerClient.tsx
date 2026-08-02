@@ -68,37 +68,102 @@ export function ScannerClient({ eventId }: { eventId: string }) {
     setError('انتهت جلسة الماسح — أدخل كلمة المرور من جديد');
   }, [eventId]);
 
-  async function guard<T>(work: () => Promise<T>): Promise<T | null> {
-    try {
-      setError(null);
-      return await work();
-    } catch (err) {
-      if (err instanceof ScanApiError && err.status === 401) {
-        handleExpired();
+  /**
+   * Every handler below is memoised, and this is not a micro-optimisation.
+   *
+   * CameraView starts the camera inside an effect keyed on its `onScan` prop.
+   * With inline arrows those props get a fresh identity on every parent render,
+   * so the effect would tear down and restart the camera each time — a visible
+   * stall mid-queue. The debounced search in ManualView has the same dependency.
+   */
+  const guard = useCallback(
+    async <T,>(work: () => Promise<T>): Promise<T | null> => {
+      try {
+        setError(null);
+        return await work();
+      } catch (err) {
+        if (err instanceof ScanApiError && err.status === 401) {
+          handleExpired();
+          return null;
+        }
+        setError(err instanceof Error ? err.message : 'تعذّر الاتصال بالخادم');
         return null;
       }
-      setError(err instanceof Error ? err.message : 'تعذّر الاتصال بالخادم');
-      return null;
-    }
-  }
+    },
+    [handleExpired],
+  );
+
+  const token = session?.sessionToken ?? '';
+
+  const showResult = useCallback((next: ScanResult) => {
+    setResult(next);
+    setView('result');
+  }, []);
+
+  const backToCamera = useCallback(() => {
+    setResult(null);
+    setView('camera');
+  }, []);
+
+  const goManual = useCallback(() => setView('manual'), []);
+  const goLog = useCallback(() => setView('log'), []);
+
+  const handleScan = useCallback(
+    (qrToken: string) => guard(() => submitCheckIn(token, { qrToken })),
+    [guard, token],
+  );
+
+  const handleSearch = useCallback(
+    (q: string) => guard(() => searchGuests(token, q)),
+    [guard, token],
+  );
+
+  const handlePick = useCallback(
+    async (guestId: string) => {
+      const next = await guard(() => submitCheckIn(token, { guestId }));
+      if (next) showResult(next);
+    },
+    [guard, token, showResult],
+  );
+
+  const handleCode = useCallback(
+    async (displayCode: string) => {
+      const next = await guard(() => submitCheckIn(token, { displayCode }));
+      if (next) showResult(next);
+    },
+    [guard, token, showResult],
+  );
+
+  const handleOverride = useCallback(
+    async (seats: number) => {
+      if (!result?.guest) return;
+      const next = await guard(() =>
+        submitOverride(token, {
+          guestId: result.guest!.guestId,
+          seats,
+          reason: 'سُمح بالدخول عند الباب',
+        }),
+      );
+      if (next) setResult(next);
+    },
+    [guard, token, result],
+  );
+
+  const handleLoadLog = useCallback(() => guard(() => fetchLog(token)), [guard, token]);
+
+  const handleOpened = useCallback(
+    (opened: ScanSession) => {
+      saveSession(eventId, opened);
+      setSession(opened);
+      setError(null);
+      setView('camera');
+    },
+    [eventId],
+  );
 
   if (!session || view === 'gate') {
-    return (
-      <Gate
-        eventId={eventId}
-        error={error}
-        onOpened={(opened) => {
-          saveSession(eventId, opened);
-          setSession(opened);
-          setError(null);
-          setView('camera');
-        }}
-        onError={setError}
-      />
-    );
+    return <Gate eventId={eventId} error={error} onOpened={handleOpened} onError={setError} />;
   }
-
-  const token = session.sessionToken;
 
   return (
     <main dir="rtl" className="flex min-h-screen flex-col bg-emerald-ink text-surface-sand">
@@ -114,13 +179,10 @@ export function ScannerClient({ eventId }: { eventId: string }) {
       {view === 'camera' && (
         <CameraView
           session={session}
-          onResult={(next) => {
-            setResult(next);
-            setView('result');
-          }}
-          onManual={() => setView('manual')}
-          onLog={() => setView('log')}
-          onScan={(qrToken) => guard(() => submitCheckIn(token, { qrToken }))}
+          onResult={showResult}
+          onManual={goManual}
+          onLog={goLog}
+          onScan={handleScan}
           error={error}
         />
       )}
@@ -128,53 +190,23 @@ export function ScannerClient({ eventId }: { eventId: string }) {
       {view === 'result' && result && (
         <ResultView
           result={result}
-          onNext={() => {
-            setResult(null);
-            setView('camera');
-          }}
-          onManual={() => setView('manual')}
-          onOverride={async (seats) => {
-            const next = await guard(() =>
-              submitOverride(token, {
-                guestId: result.guest!.guestId,
-                seats,
-                reason: 'سُمح بالدخول عند الباب',
-              }),
-            );
-            if (next) setResult(next);
-          }}
+          onNext={backToCamera}
+          onManual={goManual}
+          onOverride={handleOverride}
         />
       )}
 
       {view === 'manual' && (
         <ManualView
-          onBack={() => setView('camera')}
-          onSearch={(q) => guard(() => searchGuests(token, q))}
-          onPick={async (guestId) => {
-            const next = await guard(() => submitCheckIn(token, { guestId }));
-            if (next) {
-              setResult(next);
-              setView('result');
-            }
-          }}
-          onCode={async (displayCode) => {
-            const next = await guard(() => submitCheckIn(token, { displayCode }));
-            if (next) {
-              setResult(next);
-              setView('result');
-            }
-          }}
+          onBack={backToCamera}
+          onSearch={handleSearch}
+          onPick={handlePick}
+          onCode={handleCode}
           error={error}
         />
       )}
 
-      {view === 'log' && (
-        <LogView
-          session={session}
-          onBack={() => setView('camera')}
-          onLoad={() => guard(() => fetchLog(token))}
-        />
-      )}
+      {view === 'log' && <LogView session={session} onBack={backToCamera} onLoad={handleLoadLog} />}
     </main>
   );
 }
@@ -451,7 +483,6 @@ const VERDICT_STYLE: Record<string, { bg: string; accent: string; icon: string }
   INVALID: { bg: 'bg-status-declinedFg', accent: 'text-[#F3D8D8]', icon: '✕' },
   WRONG_EVENT: { bg: 'bg-status-declinedFg', accent: 'text-[#F3D8D8]', icon: '✕' },
   NOT_CONFIRMED: { bg: 'bg-status-declinedFg', accent: 'text-[#F3D8D8]', icon: '✕' },
-  REVOKED: { bg: 'bg-status-declinedFg', accent: 'text-[#F3D8D8]', icon: '✕' },
 };
 
 function ResultView({

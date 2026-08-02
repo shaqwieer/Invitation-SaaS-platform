@@ -28,7 +28,6 @@ const MESSAGES: Record<ScanVerdictValue, { ar: string; en: string }> = {
     en: 'This code belongs to a different event',
   },
   NOT_CONFIRMED: { ar: 'لم يؤكّد هذا الضيف حضوره', en: 'This guest has not confirmed' },
-  REVOKED: { ar: 'أُلغي تسجيل هذا الضيف', en: "This guest's check-in was revoked" },
 };
 
 function result(
