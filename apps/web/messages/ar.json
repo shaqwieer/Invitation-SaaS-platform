@@ -60,7 +60,6 @@
   "auth.logout": "تسجيل الخروج",
   "auth.loading": "جارٍ التحقق…",
   "auth.required": "سجّل الدخول للمتابعة",
-  "dash.greeting": "مساء الخير، {name}",
   "dash.updated": "آخر تحديث {ago}",
   "dash.justNow": "الآن",
   "dash.minutesAgo": "قبل {count} دقيقة",
@@ -111,5 +110,17 @@
   "report.seats": "{count} مقاعد",
   "report.exportExcel": "تصدير Excel",
   "report.nobodyCame": "لم يُسجَّل أي دخول لهذه المناسبة.",
-  "report.mainGuests": "ضيفًا رئيسيًا"
+  "report.mainGuests": "ضيفًا رئيسيًا",
+  "dash.greetingMorning": "صباح الخير، {name}",
+  "dash.greetingAfternoon": "مساء الخير، {name}",
+  "dash.greetingEvening": "مساء الخير، {name}",
+  "dash.declinedShare": "{pct} من المدعوين",
+  "dash.sendTitle": "أرسل الدعوات عبر واتساب",
+  "dash.sendBody": "اضغط على كل ضيف لفتح واتساب برسالته الجاهزة. سُجّلت الدعوات كمُرسَلة، ويمكنك إعادة الإرسال في أي وقت.",
+  "dash.sendConfirm": "سيتم تجهيز {count} دعوة للإرسال. متابعة؟",
+  "dash.sendOne": "إرسال",
+  "dash.sendPreparing": "جارٍ التجهيز…",
+  "dash.close": "إغلاق",
+  "dash.sendFailed": "تعذّر تجهيز الدعوات",
+  "dash.quotaBlocked": "عدد الضيوف يتجاوز باقتك — تحتاج ترقية قبل الإرسال."
 }

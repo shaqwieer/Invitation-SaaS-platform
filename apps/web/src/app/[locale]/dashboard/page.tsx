@@ -17,6 +17,20 @@ interface EventOption {
   startsAt: string;
 }
 
+interface GuestInviteLink {
+  guestId: string;
+  guestName: string;
+  whatsappUrl: string;
+}
+
+/** «صباح الخير» before noon — a host checking replies at 10am is not in the evening. */
+function greetingKey(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'dash.greetingMorning';
+  if (hour < 17) return 'dash.greetingAfternoon';
+  return 'dash.greetingEvening';
+}
+
 /**
  * Host dashboard (§03).
  *
@@ -36,6 +50,9 @@ export default function DashboardPage() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number>(Date.now());
+  const [sendLinks, setSendLinks] = useState<GuestInviteLink[] | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     if (ready && !user) router.replace(`/${locale}/login`);
@@ -76,6 +93,49 @@ export default function DashboardPage() {
     };
   }, [eventId, load]);
 
+  /**
+   * «أرسلها الآن» — prepare every unsent invitation.
+   *
+   * Deliberately does *not* fire N `window.open` calls: browsers block all but
+   * the first, so the host would tap once, see one chat, and quietly send one
+   * invitation out of thirty. Instead the links are listed and the host taps
+   * through them — which is also what the design warns about
+   * («سيفتح واتساب ٣٠ مرة متتالية»).
+   */
+  const sendUnsent = useCallback(async () => {
+    if (!eventId || !summary) return;
+    if (!window.confirm(t('dash.sendConfirm', { count: summary.counts.NOT_SENT }))) return;
+
+    setSending(true);
+    setSendError(null);
+
+    try {
+      const res = await authFetch(`/api/events/${eventId}/guests/bulk-send`, {
+        method: 'POST',
+        body: JSON.stringify({ onlyUnsent: true }),
+      });
+
+      const body = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setSendError(
+          body?.error?.code === 'GUEST_QUOTA_EXCEEDED'
+            ? t('dash.quotaBlocked')
+            : t('dash.sendFailed'),
+        );
+        return;
+      }
+
+      setSendLinks(body.links);
+      // The server has already marked them SENT, so the tiles are now stale.
+      await load();
+    } catch {
+      setSendError(t('dash.sendFailed'));
+    } finally {
+      setSending(false);
+    }
+  }, [eventId, summary, authFetch, load, t]);
+
   if (!ready || !user) {
     return (
       <main className="flex min-h-screen items-center justify-center text-body text-ink-muted">
@@ -99,7 +159,7 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-[#F6F4EE]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-surface px-6 py-4 lg:px-8">
         <div className="flex flex-col gap-1">
-          <span className="text-xl font-semibold">{t('dash.greeting', { name: user.name })}</span>
+          <span className="text-xl font-semibold">{t(greetingKey(), { name: user.name })}</span>
           <span className="text-[13.5px] text-ink-light">
             {t('dash.updated', {
               ago:
@@ -145,7 +205,19 @@ export default function DashboardPage() {
         <div className="p-8 text-body text-ink-muted">{t('auth.loading')}</div>
       ) : (
         <div className="flex flex-col gap-5 p-6 lg:p-8">
-          <StatTiles summary={summary} locale={locale} t={t} />
+          {sendError && (
+            <p className="rounded-card bg-status-declinedBg px-5 py-4 text-sm text-status-declinedFg">
+              {sendError}
+            </p>
+          )}
+
+          <StatTiles
+            summary={summary}
+            locale={locale}
+            t={t}
+            sending={sending}
+            onSendUnsent={sendUnsent}
+          />
 
           <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
             <Completion summary={summary} locale={locale} t={t} eventId={eventId!} />
@@ -153,15 +225,32 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {sendLinks && <SendPanel links={sendLinks} t={t} onClose={() => setSendLinks(null)} />}
     </main>
   );
 }
 
 type T = ReturnType<typeof translator>;
 
-function StatTiles({ summary, locale, t }: { summary: DashboardSummary; locale: AppLocale; t: T }) {
+function StatTiles({
+  summary,
+  locale,
+  t,
+  sending,
+  onSendUnsent,
+}: {
+  summary: DashboardSummary;
+  locale: AppLocale;
+  t: T;
+  sending: boolean;
+  onSendUnsent: () => void;
+}) {
   const n = (value: number) => displayNumber(value, locale);
   const { counts } = summary;
+
+  /** Percent sign follows the locale, like every other rate on this page. */
+  const pct = (value: number) => `${n(Math.round(value * 100))}${locale === 'ar' ? '٪' : '%'}`;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -190,7 +279,9 @@ function StatTiles({ summary, locale, t }: { summary: DashboardSummary; locale: 
         valueClass="text-status-declined"
       >
         <span className="text-[12.5px] text-ink-faint">
-          {Math.round((counts.DECLINED / Math.max(1, counts.total)) * 100)}٪
+          {t('dash.declinedShare', {
+            pct: pct(counts.DECLINED / Math.max(1, counts.total)),
+          })}
         </span>
       </Tile>
 
@@ -218,8 +309,12 @@ function StatTiles({ summary, locale, t }: { summary: DashboardSummary; locale: 
           {n(counts.NOT_SENT)}
         </span>
         {counts.NOT_SENT > 0 && (
-          <button className="rounded-[9px] bg-[#FFFDF7] py-2.5 text-[13px] font-semibold text-emerald-800">
-            {t('dash.sendNow')}
+          <button
+            onClick={onSendUnsent}
+            disabled={sending}
+            className="rounded-[9px] bg-[#FFFDF7] py-2.5 text-[13px] font-semibold text-emerald-800 disabled:opacity-60"
+          >
+            {sending ? t('dash.sendPreparing') : t('dash.sendNow')}
           </button>
         )}
       </div>
@@ -420,6 +515,54 @@ function SubStat({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-1.5">
       <span className="text-[13px] text-ink-light">{label}</span>
       <span className="text-[22px] font-semibold">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * The prepared invitations, one tappable link each.
+ *
+ * The host taps through the list rather than the app firing thirty popups:
+ * browsers block every `window.open` after the first, so an automatic burst
+ * would send one invitation and silently drop the rest.
+ */
+function SendPanel({ links, t, onClose }: { links: GuestInviteLink[]; t: T; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-6">
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-t-card bg-surface sm:rounded-card">
+        <div className="flex flex-col gap-2 border-b border-line-soft p-6">
+          <h2 className="text-h3">{t('dash.sendTitle')}</h2>
+          <p className="text-[13.5px] leading-relaxed text-ink-muted">{t('dash.sendBody')}</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {links.map((link) => (
+            <div
+              key={link.guestId}
+              className="flex items-center justify-between gap-3 border-b border-[#F2F0EA] px-6 py-3.5"
+            >
+              <span className="text-[14.5px]">{link.guestName}</span>
+              <a
+                href={link.whatsappUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="shrink-0 rounded-[9px] bg-emerald-700 px-4 py-2 text-[13px] font-semibold text-[#F7F5EF]"
+              >
+                {t('dash.sendOne')}
+              </a>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-line-soft p-5">
+          <button
+            onClick={onClose}
+            className="w-full rounded-control border border-line-strong bg-surface py-3 text-sm font-medium"
+          >
+            {t('dash.close')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

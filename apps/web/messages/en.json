@@ -60,7 +60,6 @@
   "auth.logout": "Log out",
   "auth.loading": "Checking…",
   "auth.required": "Sign in to continue",
-  "dash.greeting": "Good evening, {name}",
   "dash.updated": "Updated {ago}",
   "dash.justNow": "just now",
   "dash.minutesAgo": "{count} min ago",
@@ -111,5 +110,17 @@
   "report.seats": "{count} seats",
   "report.exportExcel": "Export Excel",
   "report.nobodyCame": "No entries were recorded for this event.",
-  "report.mainGuests": "primary guests"
+  "report.mainGuests": "primary guests",
+  "dash.greetingMorning": "Good morning, {name}",
+  "dash.greetingAfternoon": "Good afternoon, {name}",
+  "dash.greetingEvening": "Good evening, {name}",
+  "dash.declinedShare": "{pct} of invitees",
+  "dash.sendTitle": "Send invitations via WhatsApp",
+  "dash.sendBody": "Tap each guest to open WhatsApp with their message ready. They are recorded as sent, and you can re-send at any time.",
+  "dash.sendConfirm": "{count} invitations will be prepared. Continue?",
+  "dash.sendOne": "Send",
+  "dash.sendPreparing": "Preparing…",
+  "dash.close": "Close",
+  "dash.sendFailed": "Could not prepare the invitations",
+  "dash.quotaBlocked": "Your guest list exceeds your package — an upgrade is needed before sending."
 }
