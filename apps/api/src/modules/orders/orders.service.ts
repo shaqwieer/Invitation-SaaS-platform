@@ -49,17 +49,30 @@ export const ORDER_INCLUDE = {
 } satisfies Prisma.OrderInclude;
 
 /**
- * DW-2026-0001, counting within the year.
+ * DW-2026-0001 — one past the highest number already issued this year.
  *
- * Two hosts checking out in the same second would compute the same sequence, so
- * the caller retries on the unique constraint rather than trusting the count.
+ * Derived from the maximum rather than a row count, because a count can go
+ * *down*. `Order.userId` cascades on user delete, so removing an account would
+ * shrink the count and hand a future order an invoice number that has already
+ * been issued. Gaps in an invoice sequence are unremarkable; reuse is not.
+ *
+ * The suffix is cast to an integer in SQL rather than compared as text, so the
+ * ordering stays correct past DW-2026-9999 where lexicographic comparison would
+ * quietly put 9999 above 10000.
+ *
+ * Two hosts checking out in the same instant still compute the same number, so
+ * the caller retries on the unique constraint rather than trusting this alone.
  */
 async function nextOrderNumber(): Promise<string> {
   const year = new Date().getFullYear();
-  const startOfYear = new Date(Date.UTC(year, 0, 1));
 
-  const count = await prisma.order.count({ where: { createdAt: { gte: startOfYear } } });
-  return formatOrderNumber(year, count + 1);
+  const rows = await prisma.$queryRaw<Array<{ max: number | null }>>`
+    SELECT MAX(CAST(split_part("orderNumber", '-', 3) AS INTEGER)) AS max
+    FROM "Order"
+    WHERE "orderNumber" LIKE ${`DW-${year}-%`}
+  `;
+
+  return formatOrderNumber(year, Number(rows[0]?.max ?? 0) + 1);
 }
 
 /**

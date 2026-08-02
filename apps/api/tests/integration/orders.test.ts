@@ -172,6 +172,33 @@ describe('creating an order', () => {
     expect(res.body.error.code).toBe('DISCOUNT_NOT_AVAILABLE');
   });
 
+  it('never reissues an order number, even after rows disappear', async () => {
+    const first = await request(app)
+      .post('/api/orders')
+      .set(...host.auth())
+      .send({ eventId: event.id, packageId: pkg.id });
+
+    const second = await request(app)
+      .post('/api/orders')
+      .set(...host.auth())
+      .send({ eventId: event.id, packageId: pkg.id });
+
+    expect(second.body.order.orderNumber).not.toBe(first.body.order.orderNumber);
+
+    // Order.userId cascades on user delete, so a count-based sequence could go
+    // *down* and hand a later order an invoice number already issued. Gaps are
+    // unremarkable; reuse is not.
+    await prisma.order.deleteMany({ where: { id: first.body.order.id } });
+
+    const third = await request(app)
+      .post('/api/orders')
+      .set(...host.auth())
+      .send({ eventId: event.id, packageId: pkg.id });
+
+    expect(third.body.order.orderNumber).not.toBe(first.body.order.orderNumber);
+    expect(third.body.order.orderNumber).not.toBe(second.body.order.orderNumber);
+  });
+
   it('cancels an abandoned checkout when a new one starts', async () => {
     const first = await request(app)
       .post('/api/orders')
