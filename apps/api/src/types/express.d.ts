@@ -1,4 +1,4 @@
-import type { Event, User } from '@prisma/client';
+import type { Event, Guest, User } from '@prisma/client';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -11,6 +11,11 @@ declare global {
        * allowed to touch this event, so handlers can use it without re-checking.
        */
       event?: Event;
+      /**
+       * Set by requireGuestInEvent. Its presence proves the guest belongs to
+       * req.event, which the caller has already been authorized for.
+       */
+      guest?: Guest;
       /** Correlation id echoed in logs and error bodies. */
       id?: string;
     }

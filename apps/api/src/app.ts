@@ -78,7 +78,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   app.use('/api', limiters.general);
   app.use('/api/auth', createAuthRouter(limiters));
-  app.use('/api/events', createEventsRouter());
+  app.use('/api/events', createEventsRouter(limiters));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

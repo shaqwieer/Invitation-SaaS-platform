@@ -4,8 +4,8 @@ Arabic-first (RTL) digital event invitations for the Saudi/Gulf market. A host c
 event, imports a guest list, sends each guest a personal WhatsApp link, collects RSVPs with
 companion counts, and checks guests in at the door by scanning a signed QR code.
 
-**Status: Phase 1 of 6 complete** — database schema and authentication. See
-[Roadmap](#roadmap).
+**Status: Phase 2 of 6 complete** — schema, auth, events, guests, and Excel/CSV import.
+See [Roadmap](#roadmap).
 
 ---
 
@@ -128,9 +128,12 @@ The API suite provisions its own database — it derives `<your_db>_test` from `
 creates it, and migrates it on first run. It never touches your development data (every test
 truncates all tables). Override with `TEST_DATABASE_URL` if you want it elsewhere.
 
-Phase 1 coverage: Gulf phone → E.164 across 10 input formats, Arabic-Indic digits, VAT
-arithmetic, the full auth lifecycle, refresh-token reuse detection, rate limiting,
-**cross-tenant isolation**, and the schema constraints above.
+Coverage so far (196 tests): Gulf phone → E.164 across 10 input formats, Arabic-Indic
+digits, VAT arithmetic, import column detection and row validation, the full auth lifecycle,
+refresh-token reuse detection, rate limiting, the schema constraints above, real .xlsx/.csv
+parsing, import partial-success, and **cross-tenant isolation on every event, guest and
+import route** — including the subtle case of pairing your own event id with another host's
+guest id.
 
 ---
 
@@ -221,8 +224,8 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Schema + auth | ✅ Complete |
-| 2 | Events, guests, Excel/CSV import | Next |
-| 3 | Invite links, RSVP, QR codes | |
+| 2 | Events, guests, Excel/CSV import | ✅ Complete |
+| 3 | Invite links, RSVP, QR codes | Next |
 | 4 | Scanner + check-in | |
 | 5 | Dashboard + exports | |
 | 6 | Payments + admin panel | |
@@ -241,3 +244,35 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 - **Money is integer halalas; VAT is integer basis points.** No floats anywhere in pricing.
 - **Two guest identifiers.** The QR carries an HMAC-signed token; a short `displayCode`
   ("4821-77") exists only for manual door lookup and is unique *per event*, not globally.
+- **The package cap warns at import, and is enforced at send.** The design's confirm screen
+  says «سيتجاوز باقتك الحالية (٣٠٠) — ستُطلب ترقية عند الإرسال», so a host who bought the
+  wrong package can still assemble their list; the upgrade is demanded when they try to send
+  invitations. `assertGuestQuota()` exists for that gate. A separate hard ceiling of 5,000
+  guests per event blocks runaway growth regardless of package.
+- **Import stages nothing server-side.** Parsed rows travel back to the client and return on
+  commit, so an abandoned wizard leaves no guest phone numbers sitting in a temp table. It
+  also matches the UX: the host corrects rows inline on the errors screen and resubmits.
+- **Import duplicates are detected before insert**, against both the incoming batch and the
+  rows already stored. Relying on the `@@unique([eventId, phone])` constraint instead would
+  abort the whole statement on the first collision and produce no per-row report.
+
+---
+
+## API surface (phases 1–2)
+
+All `/api/events/**` routes require a bearer token and are scoped to the caller's own events.
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/auth/register` · `/login` · `/refresh` · `/logout` | Refresh cookie rotates |
+| `GET` | `/api/auth/me` | |
+| `POST` | `/api/auth/otp/request` · `/otp/verify` | Console SMS provider in dev |
+| `GET` `POST` | `/api/events` | List / create |
+| `GET` `PATCH` `DELETE` | `/api/events/:eventId` | |
+| `GET` | `/api/events/:eventId/quota` | Sidebar meter |
+| `GET` `POST` | `/api/events/:eventId/guests` | Search, status/group filters, pagination |
+| `GET` `PATCH` `DELETE` | `/api/events/:eventId/guests/:guestId` | |
+| `POST` | `/api/events/:eventId/guests/bulk-delete` · `bulk-status` | |
+| `POST` | `/api/events/:eventId/guests/import/parse` | multipart `file`; .xlsx or .csv |
+| `POST` | `/api/events/:eventId/guests/import/validate` | Dry run — the errors screen |
+| `POST` | `/api/events/:eventId/guests/import/commit` | Partial success |

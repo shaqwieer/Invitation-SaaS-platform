@@ -1,5 +1,6 @@
+import ExcelJS from 'exceljs';
 import { hash as argonHash } from '@node-rs/argon2';
-import type { Event, User } from '@prisma/client';
+import type { Event, Guest, User } from '@prisma/client';
 import type { Express } from 'express';
 import request from 'supertest';
 import { prisma } from '../../src/lib/prisma.js';
@@ -63,6 +64,53 @@ export async function createEvent(hostId: string, overrides: Partial<Event> = {}
       venueName: overrides.venueName ?? 'قاعة الماسة',
     },
   });
+}
+
+export async function createGuest(
+  eventId: string,
+  overrides: Partial<Pick<Guest, 'name' | 'phone' | 'group' | 'status' | 'companionsAllowed'>> = {},
+): Promise<Guest> {
+  return prisma.guest.create({
+    data: {
+      eventId,
+      name: overrides.name ?? 'أ. فيصل السبيعي',
+      phone: overrides.phone ?? uniquePhone(),
+      group: overrides.group ?? null,
+      status: overrides.status ?? 'NOT_SENT',
+      companionsAllowed: overrides.companionsAllowed ?? 0,
+    },
+  });
+}
+
+/** Attach a package so quota-dependent behaviour can be exercised. */
+export async function attachPackage(eventId: string, guestCap: number): Promise<void> {
+  const pkg = await prisma.package.upsert({
+    where: { key: `test-cap-${guestCap}` },
+    update: { guestCap },
+    create: {
+      key: `test-cap-${guestCap}`,
+      nameAr: `باقة ${guestCap}`,
+      nameEn: `Package ${guestCap}`,
+      guestCap,
+      priceHalalas: 10_000,
+    },
+  });
+  await prisma.event.update({ where: { id: eventId }, data: { packageId: pkg.id } });
+}
+
+/** Build a real .xlsx in memory so the import tests exercise the actual parser. */
+export async function buildXlsx(rows: Array<Array<string | number | null>>): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('الضيوف');
+  for (const row of rows) sheet.addRow(row);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+export function buildCsv(rows: Array<Array<string | number | null>>): Buffer {
+  const body = rows
+    .map((row) => row.map((cell) => (cell === null ? '' : String(cell))).join(','))
+    .join('\n');
+  return Buffer.from(body, 'utf8');
 }
 
 export interface Session {

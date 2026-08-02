@@ -45,6 +45,36 @@ export function requireEventOwner(paramName = 'eventId'): RequestHandler {
 }
 
 /**
+ * Load a guest that must belong to the already-authorized event.
+ *
+ * For routes nested under /events/:eventId — requireEventOwner has proven the
+ * caller owns the event, and this proves the guest is *in* that event. Without
+ * the second check, a host could read any guest on the platform by pairing their
+ * own event id with someone else's guest id.
+ */
+export function requireGuestInEvent(paramName = 'guestId'): RequestHandler {
+  return async (req, _res, next) => {
+    try {
+      if (!req.event) throw new NotFoundError('Guest not found', 'GUEST_NOT_FOUND');
+
+      const guestId = req.params[paramName];
+      if (!guestId) throw new NotFoundError('Guest not found', 'GUEST_NOT_FOUND');
+
+      const guest = await prisma.guest.findFirst({
+        where: { id: guestId, eventId: req.event.id },
+      });
+
+      if (!guest) throw new NotFoundError('Guest not found', 'GUEST_NOT_FOUND');
+
+      req.guest = guest;
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/**
  * Same guarantee for a resource reached by guest id.
  *
  * Resolves the guest through its event's owner, so a host cannot read a guest by
