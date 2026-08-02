@@ -15,6 +15,7 @@ import {
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createEventsRouter } from './modules/events/events.routes.js';
 import { createInviteRouter } from './modules/invite/invite.routes.js';
+import { createScanRouter } from './modules/scan/scan.routes.js';
 
 export interface CreateAppOptions {
   /** Override limits per instance — tests use this to make a limiter trip quickly. */
@@ -82,6 +83,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/api/events', createEventsRouter(limiters));
   // Public — guests reach this with no account, holding only their token.
   app.use('/api/invite', createInviteRouter(limiters));
+  // The door. Authenticated by a scanner session, not a user account.
+  app.use('/api/scan', createScanRouter(limiters));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

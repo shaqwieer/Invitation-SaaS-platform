@@ -1,4 +1,4 @@
-import type { Event, Guest, User } from '@prisma/client';
+import type { Event, Guest, ScanUser, User } from '@prisma/client';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -16,6 +16,11 @@ declare global {
        * req.event, which the caller has already been authorized for.
        */
       guest?: Guest;
+      /**
+       * Set by requireScanSession — the person working the door. Its `eventId`
+       * is the only event a scanner request may touch.
+       */
+      scanUser?: ScanUser;
       /** Correlation id echoed in logs and error bodies. */
       id?: string;
     }

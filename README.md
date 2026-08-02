@@ -4,8 +4,8 @@ Arabic-first (RTL) digital event invitations for the Saudi/Gulf market. A host c
 event, imports a guest list, sends each guest a personal WhatsApp link, collects RSVPs with
 companion counts, and checks guests in at the door by scanning a signed QR code.
 
-**Status: Phase 3 of 6 complete** — schema, auth, events, guests, Excel/CSV import, invite
-links, RSVP and QR codes. See [Roadmap](#roadmap).
+**Status: Phase 4 of 6 complete** — schema, auth, events, guests, Excel/CSV import, invite
+links, RSVP, QR codes, and the reception scanner. See [Roadmap](#roadmap).
 
 ---
 
@@ -235,7 +235,7 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 | 1     | Schema + auth                    | ✅ Complete |
 | 2     | Events, guests, Excel/CSV import | ✅ Complete |
 | 3     | Invite links, RSVP, QR codes     | ✅ Complete |
-| 4     | Scanner + check-in               |             |
+| 4     | Scanner + check-in               | ✅ Complete |
 | 5     | Dashboard + exports              |             |
 | 6     | Payments + admin panel           |             |
 
@@ -316,3 +316,28 @@ here is rate limited: 60 bits of entropy is unguessable only if guessing is boun
 The guest-facing page is server-rendered at `/invite/<token>` — deliberately outside the
 `/[locale]` prefix, because a guest opens a bare link straight from WhatsApp with no locale
 to carry. `?lang=en` switches to the LTR mirror.
+
+The door — authenticated by a scanner session (`X-Scan-Session`), never a user account.
+The event is taken from the session row, so there is no request shape in which a door can
+name a different event:
+
+| Method | Path                      | Notes                                           |
+| ------ | ------------------------- | ----------------------------------------------- |
+| `POST` | `/api/scan/gate/:eventId` | Event password + scanner name → session         |
+| `GET`  | `/api/scan/session`       | Who is on shift                                 |
+| `POST` | `/api/scan/check-in`      | `qrToken` **or** `displayCode` **or** `guestId` |
+| `POST` | `/api/scan/override`      | Admit anyway, after a `USED` verdict            |
+| `GET`  | `/api/scan/search`        | «ابحث بالاسم يدويًا»                            |
+| `GET`  | `/api/scan/log`           | Door timeline + counters                        |
+
+Host-side, over the same data:
+
+| Method   | Path                                            | Notes                                |
+| -------- | ----------------------------------------------- | ------------------------------------ |
+| `GET`    | `/api/events/:eventId/scan/sessions`            | Who worked the door                  |
+| `POST`   | `/api/events/:eventId/scan/sessions/:id/revoke` | End a session                        |
+| `GET`    | `/api/events/:eventId/checkins`                 | Same timeline, for the host          |
+| `DELETE` | `/api/events/:eventId/checkins/:checkInId`      | Revoke — frees the guest to re-enter |
+
+The scanner UI is at `/scan/<eventId>`. The session lives in `localStorage`, scoped per
+event, so staff can reload or hand the phone over without going back through the gate.

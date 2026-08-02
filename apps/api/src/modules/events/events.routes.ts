@@ -11,6 +11,9 @@ import { validate } from '../../middleware/validate.js';
 import { getGuestQuota } from '../../lib/quota.js';
 import type { RateLimiters } from '../../middleware/rateLimit.js';
 import { createGuestsRouter } from '../guests/guests.routes.js';
+import * as scan from '../scan/scan.service.js';
+import * as sessions from '../scan/session.service.js';
+import { scanLog, scanStats } from '../scan/log.service.js';
 import * as events from './events.service.js';
 
 export function createEventsRouter(limiters: RateLimiters): Router {
@@ -76,6 +79,59 @@ export function createEventsRouter(limiters: RateLimiters): Router {
   router.get('/:eventId/quota', requireEventOwner(), async (req, res, next) => {
     try {
       res.json({ quota: await getGuestQuota(req.event!.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── The door, from the host's side ─────────────────────────────────────────
+
+  /** Who is (or was) working the door tonight. */
+  router.get('/:eventId/scan/sessions', requireEventOwner(), async (req, res, next) => {
+    try {
+      res.json({ sessions: await sessions.listSessions(req.event!.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** End a session — someone went home, or the password got out. */
+  router.post(
+    '/:eventId/scan/sessions/:scanUserId/revoke',
+    requireEventOwner(),
+    async (req, res, next) => {
+      try {
+        await sessions.revokeSession(req.event!.id, req.params.scanUserId!, req.user!.id);
+        res.status(204).end();
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.get('/:eventId/checkins', requireEventOwner(), async (req, res, next) => {
+    try {
+      const [stats, entries] = await Promise.all([
+        scanStats(req.event!.id),
+        scanLog(req.event!.id),
+      ]);
+      res.json({ stats, entries });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Undo a check-in.
+   *
+   * Host-only — the door can admit, but only the person who owns the event can
+   * erase a record of who came in. Revoking frees the guest to be admitted
+   * again, which is the point: it exists for mistakes.
+   */
+  router.delete('/:eventId/checkins/:checkInId', requireEventOwner(), async (req, res, next) => {
+    try {
+      await scan.revokeCheckIn(req.event!, req.params.checkInId!, req.user!.id);
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

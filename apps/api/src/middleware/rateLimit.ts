@@ -21,6 +21,14 @@ export interface RateLimitConfig {
    * `general`, which is sized for ordinary reads.
    */
   fileImport: RateLimitRule;
+  /**
+   * Door scans. Generous, and keyed by session rather than IP — every staff
+   * member at a venue shares one WiFi address, so an IP-keyed budget would have
+   * three doors competing for it and start refusing guests at the gate.
+   */
+  scan: RateLimitRule;
+  /** The scanner gate. Tight: this is a password, and it is the same one all night. */
+  scanGate: RateLimitRule;
   /** Everything else. */
   general: RateLimitRule;
 }
@@ -33,15 +41,22 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   inviteLookup: { windowMs: MINUTE, limit: 30 },
   rsvp: { windowMs: 10 * MINUTE, limit: 20 },
   fileImport: { windowMs: 15 * MINUTE, limit: 30 },
+  scan: { windowMs: 15 * MINUTE, limit: 600 },
+  scanGate: { windowMs: 15 * MINUTE, limit: 10 },
   general: { windowMs: 15 * MINUTE, limit: 300 },
 };
 
-function build(rule: RateLimitRule, code: string): RateLimitRequestHandler {
+function build(
+  rule: RateLimitRule,
+  code: string,
+  keyGenerator?: (req: { get(name: string): string | undefined; ip?: string }) => string,
+): RateLimitRequestHandler {
   return rateLimit({
     windowMs: rule.windowMs,
     limit: rule.limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    ...(keyGenerator ? { keyGenerator: keyGenerator as never } : {}),
     // Route through the app's error pipeline so the body shape matches every
     // other error the client has to handle.
     handler: (_req, _res, next) => {
@@ -56,6 +71,8 @@ export interface RateLimiters {
   inviteLookup: RateLimitRequestHandler;
   rsvp: RateLimitRequestHandler;
   fileImport: RateLimitRequestHandler;
+  scan: RateLimitRequestHandler;
+  scanGate: RateLimitRequestHandler;
   general: RateLimitRequestHandler;
 }
 
@@ -73,6 +90,14 @@ export function createRateLimiters(config: RateLimitConfig = DEFAULT_RATE_LIMITS
     inviteLookup: build(config.inviteLookup, 'INVITE_RATE_LIMITED'),
     rsvp: build(config.rsvp, 'RSVP_RATE_LIMITED'),
     fileImport: build(config.fileImport, 'IMPORT_RATE_LIMITED'),
+    scan: build(
+      config.scan,
+      'SCAN_RATE_LIMITED',
+      (req) =>
+        // Per door session, so one busy gate cannot starve another at the same venue.
+        req.get('x-scan-session') ?? req.ip ?? 'unknown',
+    ),
+    scanGate: build(config.scanGate, 'SCAN_GATE_RATE_LIMITED'),
     general: build(config.general, 'RATE_LIMITED'),
   };
 }
