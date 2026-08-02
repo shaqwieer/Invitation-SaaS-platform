@@ -162,7 +162,9 @@ describe('listing guests', () => {
   it('never leaks guests from another event', async () => {
     await createGuest(eventB.id, { name: 'ضيف مناسبة أخرى', phone: '+966500009999' });
 
-    const res = await request(app).get(guestsUrl(eventA.id)).set(...hostA.auth());
+    const res = await request(app)
+      .get(guestsUrl(eventA.id))
+      .set(...hostA.auth());
 
     expect(res.body.counts.total).toBe(4);
     expect(JSON.stringify(res.body)).not.toContain('ضيف مناسبة أخرى');
@@ -276,7 +278,9 @@ describe('bulk operations', () => {
 
 describe('cross-tenant isolation on guest routes', () => {
   it('refuses to list guests of another host’s event', async () => {
-    const res = await request(app).get(guestsUrl(eventA.id)).set(...hostB.auth());
+    const res = await request(app)
+      .get(guestsUrl(eventA.id))
+      .set(...hostB.auth());
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('EVENT_NOT_FOUND');
   });

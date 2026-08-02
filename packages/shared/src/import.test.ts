@@ -199,9 +199,10 @@ describe('dedupeImportRows', () => {
   });
 
   it('separates duplicates already in the database from duplicates in the file', () => {
-    const result = dedupeImportRows([valid(3, '+966554128830'), valid(4, '+966501112233')], [
-      '+966554128830',
-    ]);
+    const result = dedupeImportRows(
+      [valid(3, '+966554128830'), valid(4, '+966501112233')],
+      ['+966554128830'],
+    );
 
     expect(result.duplicatesExisting).toHaveLength(1);
     expect(result.duplicatesExisting[0]!.rowNumber).toBe(3);

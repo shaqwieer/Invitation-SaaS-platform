@@ -61,7 +61,12 @@ describe('Invitation identifiers', () => {
     });
 
     await prisma.invitation.create({
-      data: { guestId: guestA.id, eventId: first.id, token: 'abc123def456', displayCode: '1111-11' },
+      data: {
+        guestId: guestA.id,
+        eventId: first.id,
+        token: 'abc123def456',
+        displayCode: '1111-11',
+      },
     });
 
     // The token is the whole URL's secrecy — two guests sharing one would hand
@@ -89,7 +94,12 @@ describe('Invitation identifiers', () => {
     });
 
     await prisma.invitation.create({
-      data: { guestId: guestA.id, eventId: first.id, token: 'tok1aaaaaaaa', displayCode: '4821-77' },
+      data: {
+        guestId: guestA.id,
+        eventId: first.id,
+        token: 'tok1aaaaaaaa',
+        displayCode: '4821-77',
+      },
     });
 
     // Six digits would collide constantly if global. The scanner only ever
@@ -117,7 +127,12 @@ describe('Invitation identifiers', () => {
     });
 
     await prisma.invitation.create({
-      data: { guestId: guestA.id, eventId: event.id, token: 'tok1aaaaaaaa', displayCode: '4821-77' },
+      data: {
+        guestId: guestA.id,
+        eventId: event.id,
+        token: 'tok1aaaaaaaa',
+        displayCode: '4821-77',
+      },
     });
 
     await expect(
@@ -250,7 +265,12 @@ describe('Webhook idempotency', () => {
 
     await expect(
       prisma.webhookEvent.create({
-        data: { provider: 'moyasar', providerEventId: 'evt_123', type: 'payment.paid', payload: {} },
+        data: {
+          provider: 'moyasar',
+          providerEventId: 'evt_123',
+          type: 'payment.paid',
+          payload: {},
+        },
       }),
     ).resolves.toBeDefined();
   });

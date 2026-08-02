@@ -98,7 +98,10 @@ export async function runImport(
     select: { phone: true },
   });
 
-  const deduped = dedupeImportRows(valid, existing.map((g) => g.phone));
+  const deduped = dedupeImportRows(
+    valid,
+    existing.map((g) => g.phone),
+  );
 
   let imported = 0;
   if (!dryRun && deduped.unique.length > 0) {

@@ -23,10 +23,7 @@ function phoneFragment(term: string): string | null {
   const digits = toWesternDigits(term).replace(/\D/g, '');
   if (digits.length < 3) return null;
 
-  return digits
-    .replace(/^00/, '')
-    .replace(/^966/, '')
-    .replace(/^0/, '');
+  return digits.replace(/^00/, '').replace(/^966/, '').replace(/^0/, '');
 }
 
 function buildWhere(eventId: string, query: ListGuestsQuery): Prisma.GuestWhereInput {

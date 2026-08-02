@@ -11,14 +11,14 @@ See [Roadmap](#roadmap).
 
 ## Stack
 
-| | |
-|---|---|
-| Monorepo | npm workspaces |
-| Web | Next.js 14 (App Router), TypeScript, Tailwind |
-| API | Express 4, TypeScript, Zod, Pino |
-| Database | PostgreSQL 16 via Prisma |
-| Auth | JWT access token + rotating refresh token (httpOnly cookie) |
-| Tests | Vitest + Supertest |
+|          |                                                             |
+| -------- | ----------------------------------------------------------- |
+| Monorepo | npm workspaces                                              |
+| Web      | Next.js 14 (App Router), TypeScript, Tailwind               |
+| API      | Express 4, TypeScript, Zod, Pino                            |
+| Database | PostgreSQL 16 via Prisma                                    |
+| Auth     | JWT access token + rotating refresh token (httpOnly cookie) |
+| Tests    | Vitest + Supertest                                          |
 
 ```
 apps/web        Next.js front end (ar/en, RTL-first)
@@ -54,11 +54,11 @@ docker compose up --build     # web :3000, api :4000, postgres :5432
 
 ### Seeded accounts
 
-| Role | Phone | Password |
-|---|---|---|
-| Host (has the demo event) | `+966500000000` | `Demo@1234` |
+| Role                                    | Phone           | Password    |
+| --------------------------------------- | --------------- | ----------- |
+| Host (has the demo event)               | `+966500000000` | `Demo@1234` |
 | Host (no events — cross-tenant fixture) | `+966500000001` | `Demo@1234` |
-| Admin | `+966500000009` | `Demo@1234` |
+| Admin                                   | `+966500000009` | `Demo@1234` |
 
 Scanner gate password for the demo event: `door1234`.
 
@@ -71,21 +71,21 @@ and `٠٥٠٠٠٠٠٠٠٠٠` all resolve to the same account.
 
 Copy `.env.example` to `.env`. Generate each secret with `openssl rand -base64 48`.
 
-| Variable | Required | Notes |
-|---|---|---|
-| `DATABASE_URL` | yes | Postgres connection string. |
-| `JWT_ACCESS_SECRET` | yes | ≥16 chars. |
-| `JWT_REFRESH_SECRET` | yes | ≥16 chars, **must differ from the access secret**. Boot fails otherwise — sharing one secret lets an access token be replayed as a refresh token. |
-| `QR_HMAC_SECRET` | yes | Signs QR payloads. **Rotating it invalidates every QR already delivered to guests.** |
-| `JWT_ACCESS_TTL` | no | Default `15m`. |
-| `JWT_REFRESH_TTL_DAYS` | no | Default `30`. |
-| `WEB_ORIGIN` | no | CORS origin allowed to send credentials. Default `http://localhost:3000`. |
-| `PUBLIC_WEB_URL` | no | Base for public invite URLs. Set to your real domain in production. |
-| `TRUST_PROXY` | **behind nginx** | Number of proxies in front of the API. Left at `0` behind a reverse proxy, every request reports the proxy's IP, so all callers share one rate-limit bucket and one attacker can lock out everybody. Set to `1` for a single nginx. |
-| `SMS_PROVIDER` | no | `console` (default) logs OTP codes instead of sending them. |
-| `PAYMENT_PROVIDER` | no | `stub` (default). |
-| `VAT_RATE` | no | Default `0.15`. |
-| `LOG_LEVEL` | no | Defaults to `debug` in dev, `info` in production, `silent` in tests. |
+| Variable               | Required         | Notes                                                                                                                                                                                                                               |
+| ---------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | yes              | Postgres connection string.                                                                                                                                                                                                         |
+| `JWT_ACCESS_SECRET`    | yes              | ≥16 chars.                                                                                                                                                                                                                          |
+| `JWT_REFRESH_SECRET`   | yes              | ≥16 chars, **must differ from the access secret**. Boot fails otherwise — sharing one secret lets an access token be replayed as a refresh token.                                                                                   |
+| `QR_HMAC_SECRET`       | yes              | Signs QR payloads. **Rotating it invalidates every QR already delivered to guests.**                                                                                                                                                |
+| `JWT_ACCESS_TTL`       | no               | Default `15m`.                                                                                                                                                                                                                      |
+| `JWT_REFRESH_TTL_DAYS` | no               | Default `30`.                                                                                                                                                                                                                       |
+| `WEB_ORIGIN`           | no               | CORS origin allowed to send credentials. Default `http://localhost:3000`.                                                                                                                                                           |
+| `PUBLIC_WEB_URL`       | no               | Base for public invite URLs. Set to your real domain in production.                                                                                                                                                                 |
+| `TRUST_PROXY`          | **behind nginx** | Number of proxies in front of the API. Left at `0` behind a reverse proxy, every request reports the proxy's IP, so all callers share one rate-limit bucket and one attacker can lock out everybody. Set to `1` for a single nginx. |
+| `SMS_PROVIDER`         | no               | `console` (default) logs OTP codes instead of sending them.                                                                                                                                                                         |
+| `PAYMENT_PROVIDER`     | no               | `stub` (default).                                                                                                                                                                                                                   |
+| `VAT_RATE`             | no               | Default `0.15`.                                                                                                                                                                                                                     |
+| `LOG_LEVEL`            | no               | Defaults to `debug` in dev, `info` in production, `silent` in tests.                                                                                                                                                                |
 
 The API validates all of this at boot and exits with a readable message listing every
 problem, rather than failing later inside a signing call.
@@ -221,14 +221,14 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 
 ## Roadmap
 
-| Phase | Scope | Status |
-|---|---|---|
-| 1 | Schema + auth | ✅ Complete |
-| 2 | Events, guests, Excel/CSV import | ✅ Complete |
-| 3 | Invite links, RSVP, QR codes | Next |
-| 4 | Scanner + check-in | |
-| 5 | Dashboard + exports | |
-| 6 | Payments + admin panel | |
+| Phase | Scope                            | Status      |
+| ----- | -------------------------------- | ----------- |
+| 1     | Schema + auth                    | ✅ Complete |
+| 2     | Events, guests, Excel/CSV import | ✅ Complete |
+| 3     | Invite links, RSVP, QR codes     | Next        |
+| 4     | Scanner + check-in               |             |
+| 5     | Dashboard + exports              |             |
+| 6     | Payments + admin panel           |             |
 
 ### Decisions worth knowing
 
@@ -243,7 +243,7 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
   id enumeration into a directory of every event on the platform.
 - **Money is integer halalas; VAT is integer basis points.** No floats anywhere in pricing.
 - **Two guest identifiers.** The QR carries an HMAC-signed token; a short `displayCode`
-  ("4821-77") exists only for manual door lookup and is unique *per event*, not globally.
+  ("4821-77") exists only for manual door lookup and is unique _per event_, not globally.
 - **The package cap warns at import, and is enforced at send.** The design's confirm screen
   says «سيتجاوز باقتك الحالية (٣٠٠) — ستُطلب ترقية عند الإرسال», so a host who bought the
   wrong package can still assemble their list; the upgrade is demanded when they try to send
@@ -262,17 +262,17 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 
 All `/api/events/**` routes require a bearer token and are scoped to the caller's own events.
 
-| Method | Path | Notes |
-|---|---|---|
-| `POST` | `/api/auth/register` · `/login` · `/refresh` · `/logout` | Refresh cookie rotates |
-| `GET` | `/api/auth/me` | |
-| `POST` | `/api/auth/otp/request` · `/otp/verify` | Console SMS provider in dev |
-| `GET` `POST` | `/api/events` | List / create |
-| `GET` `PATCH` `DELETE` | `/api/events/:eventId` | |
-| `GET` | `/api/events/:eventId/quota` | Sidebar meter |
-| `GET` `POST` | `/api/events/:eventId/guests` | Search, status/group filters, pagination |
-| `GET` `PATCH` `DELETE` | `/api/events/:eventId/guests/:guestId` | |
-| `POST` | `/api/events/:eventId/guests/bulk-delete` · `bulk-status` | |
-| `POST` | `/api/events/:eventId/guests/import/parse` | multipart `file`; .xlsx or .csv |
-| `POST` | `/api/events/:eventId/guests/import/validate` | Dry run — the errors screen |
-| `POST` | `/api/events/:eventId/guests/import/commit` | Partial success |
+| Method                 | Path                                                      | Notes                                    |
+| ---------------------- | --------------------------------------------------------- | ---------------------------------------- |
+| `POST`                 | `/api/auth/register` · `/login` · `/refresh` · `/logout`  | Refresh cookie rotates                   |
+| `GET`                  | `/api/auth/me`                                            |                                          |
+| `POST`                 | `/api/auth/otp/request` · `/otp/verify`                   | Console SMS provider in dev              |
+| `GET` `POST`           | `/api/events`                                             | List / create                            |
+| `GET` `PATCH` `DELETE` | `/api/events/:eventId`                                    |                                          |
+| `GET`                  | `/api/events/:eventId/quota`                              | Sidebar meter                            |
+| `GET` `POST`           | `/api/events/:eventId/guests`                             | Search, status/group filters, pagination |
+| `GET` `PATCH` `DELETE` | `/api/events/:eventId/guests/:guestId`                    |                                          |
+| `POST`                 | `/api/events/:eventId/guests/bulk-delete` · `bulk-status` |                                          |
+| `POST`                 | `/api/events/:eventId/guests/import/parse`                | multipart `file`; .xlsx or .csv          |
+| `POST`                 | `/api/events/:eventId/guests/import/validate`             | Dry run — the errors screen              |
+| `POST`                 | `/api/events/:eventId/guests/import/commit`               | Partial success                          |

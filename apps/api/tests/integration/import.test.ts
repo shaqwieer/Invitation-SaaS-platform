@@ -38,7 +38,14 @@ const SAMPLE = [
 ];
 
 beforeAll(() => {
-  app = createApp({ rateLimits: { auth: { windowMs: 60_000, limit: 500 } } });
+  // fileImport's real budget is 30 per 15 minutes; this file issues more than
+  // that between its cases, so it is raised here and asserted separately below.
+  app = createApp({
+    rateLimits: {
+      auth: { windowMs: 60_000, limit: 500 },
+      fileImport: { windowMs: 60_000, limit: 500 },
+    },
+  });
 });
 
 beforeEach(async () => {
@@ -116,7 +123,9 @@ describe('step 1 — parse', () => {
   });
 
   it('requires a file', async () => {
-    const res = await request(app).post(url(eventA.id, 'parse')).set(...hostA.auth());
+    const res = await request(app)
+      .post(url(eventA.id, 'parse'))
+      .set(...hostA.auth());
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('IMPORT_NO_FILE');
   });
@@ -283,7 +292,11 @@ describe('step 4 — commit', () => {
       rows: [{ rowNumber: 2, cells: ['أ. فيصل السبيعي', '0554128830', 3, null] }],
     };
 
-    await request(app).post(url(eventA.id, 'commit')).set(...hostA.auth()).send(payload).expect(201);
+    await request(app)
+      .post(url(eventA.id, 'commit'))
+      .set(...hostA.auth())
+      .send(payload)
+      .expect(201);
 
     const second = await request(app)
       .post(url(eventA.id, 'commit'))
@@ -319,9 +332,45 @@ describe('step 4 — commit', () => {
   });
 });
 
+describe('rate limiting', () => {
+  it('gives imports their own budget, tighter than the general one', async () => {
+    const strict = createApp({
+      rateLimits: {
+        auth: { windowMs: 60_000, limit: 500 },
+        fileImport: { windowMs: 60_000, limit: 2 },
+        general: { windowMs: 60_000, limit: 500 },
+      },
+    });
+
+    const host = await createUser();
+    const session = await loginAs(strict, host);
+    const event = await createEvent(host.id);
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = await request(strict)
+        .post(url(event.id, 'parse'))
+        .set(...session.auth())
+        .attach('file', buildCsv(SAMPLE), 'g.csv');
+      expect(res.status, `attempt ${attempt}`).toBe(200);
+    }
+
+    // Parsing a 10 MB workbook is the most expensive thing an authenticated
+    // host can ask for; it must not ride on the read-sized general budget.
+    const blocked = await request(strict)
+      .post(url(event.id, 'parse'))
+      .set(...session.auth())
+      .attach('file', buildCsv(SAMPLE), 'g.csv');
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error.code).toBe('IMPORT_RATE_LIMITED');
+  });
+});
+
 describe('cross-tenant isolation on import routes', () => {
   it.each(['parse', 'validate', 'commit'])('refuses %s on another host’s event', async (step) => {
-    const req = request(app).post(url(eventA.id, step)).set(...hostB.auth());
+    const req = request(app)
+      .post(url(eventA.id, step))
+      .set(...hostB.auth());
 
     const res =
       step === 'parse'

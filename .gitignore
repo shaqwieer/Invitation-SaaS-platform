@@ -5,6 +5,9 @@ build/
 out/
 coverage/
 
+# Incremental-compile caches — machine-specific, and noisy in every diff.
+*.tsbuildinfo
+
 .env
 .env.*
 !.env.example

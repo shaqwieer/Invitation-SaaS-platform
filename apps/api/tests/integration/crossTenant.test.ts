@@ -42,14 +42,18 @@ beforeEach(async () => {
 
 describe('reading another host’s event', () => {
   it('lets the owner read it', async () => {
-    const res = await request(app).get(`/api/events/${eventOfA.id}`).set(...hostA.auth());
+    const res = await request(app)
+      .get(`/api/events/${eventOfA.id}`)
+      .set(...hostA.auth());
 
     expect(res.status).toBe(200);
     expect(res.body.event.id).toBe(eventOfA.id);
   });
 
   it('answers 404 — not 403 — for a different host', async () => {
-    const res = await request(app).get(`/api/events/${eventOfA.id}`).set(...hostB.auth());
+    const res = await request(app)
+      .get(`/api/events/${eventOfA.id}`)
+      .set(...hostB.auth());
 
     // 403 would confirm the id is real. To host B, another host's event and a
     // nonexistent one must be indistinguishable, or id enumeration becomes a
@@ -59,8 +63,12 @@ describe('reading another host’s event', () => {
   });
 
   it('is indistinguishable from the response for an id that never existed', async () => {
-    const real = await request(app).get(`/api/events/${eventOfA.id}`).set(...hostB.auth());
-    const fake = await request(app).get('/api/events/clnonexistentid000000000').set(...hostB.auth());
+    const real = await request(app)
+      .get(`/api/events/${eventOfA.id}`)
+      .set(...hostB.auth());
+    const fake = await request(app)
+      .get('/api/events/clnonexistentid000000000')
+      .set(...hostB.auth());
 
     // requestId is deliberately unique per request — it is a correlation handle,
     // not part of the answer. Everything that describes *what happened* must match.
@@ -75,7 +83,9 @@ describe('reading another host’s event', () => {
   });
 
   it('leaks nothing about the event in the error body', async () => {
-    const res = await request(app).get(`/api/events/${eventOfA.id}`).set(...hostB.auth());
+    const res = await request(app)
+      .get(`/api/events/${eventOfA.id}`)
+      .set(...hostB.auth());
 
     const serialized = JSON.stringify(res.body);
     expect(serialized).not.toContain('لمى');
@@ -84,7 +94,9 @@ describe('reading another host’s event', () => {
   });
 
   it('allows an admin across tenants', async () => {
-    const res = await request(app).get(`/api/events/${eventOfA.id}`).set(...admin.auth());
+    const res = await request(app)
+      .get(`/api/events/${eventOfA.id}`)
+      .set(...admin.auth());
 
     expect(res.status).toBe(200);
     expect(res.body.event.id).toBe(eventOfA.id);
@@ -100,8 +112,12 @@ describe('listing events', () => {
   it('shows a host only their own', async () => {
     await createEvent(hostB.user.id, { title: 'حفل تخرّج' });
 
-    const a = await request(app).get('/api/events').set(...hostA.auth());
-    const b = await request(app).get('/api/events').set(...hostB.auth());
+    const a = await request(app)
+      .get('/api/events')
+      .set(...hostA.auth());
+    const b = await request(app)
+      .get('/api/events')
+      .set(...hostB.auth());
 
     expect(a.body.events).toHaveLength(1);
     expect(a.body.events[0].id).toBe(eventOfA.id);
@@ -115,7 +131,9 @@ describe('listing events', () => {
     const lonely = await createUser();
     const session = await loginAs(app, lonely);
 
-    const res = await request(app).get('/api/events').set(...session.auth());
+    const res = await request(app)
+      .get('/api/events')
+      .set(...session.auth());
 
     expect(res.status).toBe(200);
     expect(res.body.events).toEqual([]);
@@ -124,14 +142,18 @@ describe('listing events', () => {
   it('shows an admin every tenant’s events', async () => {
     await createEvent(hostB.user.id, { title: 'حفل تخرّج' });
 
-    const res = await request(app).get('/api/events').set(...admin.auth());
+    const res = await request(app)
+      .get('/api/events')
+      .set(...admin.auth());
     expect(res.body.events).toHaveLength(2);
   });
 });
 
 describe('token confusion', () => {
   it('does not accept host B’s access token as host A', async () => {
-    const res = await request(app).get('/api/auth/me').set(...hostB.auth());
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set(...hostB.auth());
     expect(res.body.user.id).toBe(hostB.user.id);
     expect(res.body.user.id).not.toBe(hostA.user.id);
   });

@@ -1,11 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "ES2022"
-    ],
+    "lib": ["dom", "dom.iterable", "ES2022"],
     "jsx": "preserve",
     "noEmit": true,
     "declaration": false,
@@ -21,25 +17,12 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@da3wa/shared": [
-        "../../packages/shared/src/index.ts"
-      ],
-      "@da3wa/shared/*": [
-        "../../packages/shared/src/*"
-      ],
-      "@/*": [
-        "./src/*"
-      ]
+      "@da3wa/shared": ["../../packages/shared/src/index.ts"],
+      "@da3wa/shared/*": ["../../packages/shared/src/*"],
+      "@/*": ["./src/*"]
     },
     "isolatedModules": true
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }

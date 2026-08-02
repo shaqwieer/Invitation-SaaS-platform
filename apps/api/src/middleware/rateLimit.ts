@@ -15,6 +15,12 @@ export interface RateLimitConfig {
   inviteLookup: RateLimitRule;
   /** Guest RSVP submissions. */
   rsvp: RateLimitRule;
+  /**
+   * Guest-list imports. The most expensive authenticated operation in the API —
+   * a 10 MB workbook parsed with ExcelJS — so it gets a far smaller budget than
+   * `general`, which is sized for ordinary reads.
+   */
+  fileImport: RateLimitRule;
   /** Everything else. */
   general: RateLimitRule;
 }
@@ -26,6 +32,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   otp: { windowMs: 10 * MINUTE, limit: 3 },
   inviteLookup: { windowMs: MINUTE, limit: 30 },
   rsvp: { windowMs: 10 * MINUTE, limit: 20 },
+  fileImport: { windowMs: 15 * MINUTE, limit: 30 },
   general: { windowMs: 15 * MINUTE, limit: 300 },
 };
 
@@ -48,6 +55,7 @@ export interface RateLimiters {
   otp: RateLimitRequestHandler;
   inviteLookup: RateLimitRequestHandler;
   rsvp: RateLimitRequestHandler;
+  fileImport: RateLimitRequestHandler;
   general: RateLimitRequestHandler;
 }
 
@@ -64,6 +72,7 @@ export function createRateLimiters(config: RateLimitConfig = DEFAULT_RATE_LIMITS
     otp: build(config.otp, 'OTP_RATE_LIMITED'),
     inviteLookup: build(config.inviteLookup, 'INVITE_RATE_LIMITED'),
     rsvp: build(config.rsvp, 'RSVP_RATE_LIMITED'),
+    fileImport: build(config.fileImport, 'IMPORT_RATE_LIMITED'),
     general: build(config.general, 'RATE_LIMITED'),
   };
 }

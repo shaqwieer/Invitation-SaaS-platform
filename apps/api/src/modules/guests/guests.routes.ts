@@ -91,37 +91,55 @@ export function createGuestsRouter(limiters: RateLimiters): Router {
     }
   });
 
-  /** Step 1 — upload and inspect. Reads the file; writes nothing. */
-  router.post('/import/parse', upload.single('file'), async (req, res, next) => {
-    try {
-      if (!req.file) throw new BadRequestError('No file uploaded', 'IMPORT_NO_FILE');
+  /**
+   * Step 1 — upload and inspect. Reads the file; writes nothing.
+   *
+   * Rate limited on its own budget: this is the most expensive operation an
+   * authenticated host can trigger, and `general` (sized for ordinary reads) is
+   * far too generous for 10 MB workbook parses.
+   */
+  router.post(
+    '/import/parse',
+    limiters.fileImport,
+    upload.single('file'),
+    async (req, res, next) => {
+      try {
+        if (!req.file) throw new BadRequestError('No file uploaded', 'IMPORT_NO_FILE');
 
-      const sheet = await parseGuestFile(req.file.buffer, req.file.originalname);
-      res.json(buildPreview(sheet));
-    } catch (err) {
-      next(err);
-    }
-  });
+        const sheet = await parseGuestFile(req.file.buffer, req.file.originalname);
+        res.json(buildPreview(sheet));
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   /** Steps 2–3 — dry run behind the mapping and errors screens. */
-  router.post('/import/validate', validate(importCommitSchema), async (req, res, next) => {
-    try {
-      const outcome = await runImport(
-        req.event!.id,
-        req.body as ImportCommitInput,
-        req.user!.id,
-        { dryRun: true },
-      );
-      res.json(outcome);
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.post(
+    '/import/validate',
+    limiters.fileImport,
+    validate(importCommitSchema),
+    async (req, res, next) => {
+      try {
+        const outcome = await runImport(
+          req.event!.id,
+          req.body as ImportCommitInput,
+          req.user!.id,
+          { dryRun: true },
+        );
+        res.json(outcome);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   /** Step 4 — apply. Good rows always land; bad rows come back in `errors`. */
   router.post(
     '/import/commit',
-    limiters.general,
+    // Not limiters.general: that instance is already mounted at /api, so adding
+    // it again here would count each request twice against the same store.
+    limiters.fileImport,
     validate(importCommitSchema),
     async (req, res, next) => {
       try {

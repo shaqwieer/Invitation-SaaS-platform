@@ -30,7 +30,10 @@ beforeEach(async () => {
 
 describe('POST /api/events', () => {
   it('creates an event owned by the caller', async () => {
-    const res = await request(app).post('/api/events').set(...hostA.auth()).send(validEvent);
+    const res = await request(app)
+      .post('/api/events')
+      .set(...hostA.auth())
+      .send(validEvent);
 
     expect(res.status).toBe(201);
     expect(res.body.event.title).toBe(validEvent.title);
@@ -159,8 +162,12 @@ describe('PATCH /api/events/:eventId', () => {
       .set(...hostA.auth())
       .send({ scannerPassword: 'door1234' });
 
-    const detail = await request(app).get(`/api/events/${event.id}`).set(...hostA.auth());
-    const list = await request(app).get('/api/events').set(...hostA.auth());
+    const detail = await request(app)
+      .get(`/api/events/${event.id}`)
+      .set(...hostA.auth());
+    const list = await request(app)
+      .get('/api/events')
+      .set(...hostA.auth());
 
     // A password digest has no business reaching a browser. Checked on all
     // three paths because it only takes one handler forgetting.
@@ -185,7 +192,10 @@ describe('DELETE /api/events/:eventId', () => {
       data: { eventId: event.id, name: 'ضيف', phone: '+966554128830' },
     });
 
-    await request(app).delete(`/api/events/${event.id}`).set(...hostA.auth()).expect(204);
+    await request(app)
+      .delete(`/api/events/${event.id}`)
+      .set(...hostA.auth())
+      .expect(204);
 
     expect(await prisma.event.count({ where: { id: event.id } })).toBe(0);
     // Deleting an event must take its guests' personal data with it.
@@ -229,7 +239,10 @@ describe('cross-tenant isolation on every event route', () => {
   it('does not delete another host’s event', async () => {
     const event = await createEvent(hostA.user.id);
 
-    await request(app).delete(`/api/events/${event.id}`).set(...hostB.auth()).expect(404);
+    await request(app)
+      .delete(`/api/events/${event.id}`)
+      .set(...hostB.auth())
+      .expect(404);
     expect(await prisma.event.count({ where: { id: event.id } })).toBe(1);
   });
 });
@@ -237,7 +250,9 @@ describe('cross-tenant isolation on every event route', () => {
 describe('GET /api/events/:eventId/quota', () => {
   it('reports no cap when no package is attached', async () => {
     const event = await createEvent(hostA.user.id);
-    const res = await request(app).get(`/api/events/${event.id}/quota`).set(...hostA.auth());
+    const res = await request(app)
+      .get(`/api/events/${event.id}/quota`)
+      .set(...hostA.auth());
 
     expect(res.status).toBe(200);
     expect(res.body.quota).toMatchObject({ cap: null, used: 0, exceeded: false });

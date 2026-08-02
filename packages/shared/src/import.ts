@@ -330,7 +330,11 @@ export function validateImportRow(
   // Blank means "no companions", not "invalid" — most sheets leave it empty.
   let companionsAllowed = 0;
   const rawCompanions = row.companions;
-  if (rawCompanions !== null && rawCompanions !== undefined && String(rawCompanions).trim() !== '') {
+  if (
+    rawCompanions !== null &&
+    rawCompanions !== undefined &&
+    String(rawCompanions).trim() !== ''
+  ) {
     const parsed = Number(toWesternDigits(String(rawCompanions).trim()));
 
     if (!Number.isFinite(parsed)) {

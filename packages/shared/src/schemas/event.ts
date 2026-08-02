@@ -1,13 +1,17 @@
 import { z } from 'zod';
 import { nameField, passwordField } from './common.js';
 
-export const eventTypeSchema = z.enum(['WEDDING', 'ENGAGEMENT', 'GRADUATION', 'CORPORATE', 'OTHER']);
+export const eventTypeSchema = z.enum([
+  'WEDDING',
+  'ENGAGEMENT',
+  'GRADUATION',
+  'CORPORATE',
+  'OTHER',
+]);
 export const eventStatusSchema = z.enum(['DRAFT', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
 export const sectionModeSchema = z.enum(['SINGLE', 'SPLIT']);
 
-const hexColour = z
-  .string()
-  .regex(/^#[0-9a-fA-F]{6}$/, 'اللون يجب أن يكون بصيغة #RRGGBB');
+const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'اللون يجب أن يكون بصيغة #RRGGBB');
 
 /** Shared by create and update so the two can never drift apart. */
 const eventCore = {

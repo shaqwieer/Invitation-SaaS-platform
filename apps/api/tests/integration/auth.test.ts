@@ -139,7 +139,9 @@ describe('GET /api/auth/me', () => {
     const user = await createUser({ name: 'أم عبدالعزيز' });
     const session = await loginAs(app, user);
 
-    const res = await request(app).get('/api/auth/me').set(...session.auth());
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set(...session.auth());
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(user.id);
@@ -164,7 +166,9 @@ describe('GET /api/auth/me', () => {
     const session = await loginAs(app, user);
     await prisma.user.delete({ where: { id: user.id } });
 
-    const res = await request(app).get('/api/auth/me').set(...session.auth());
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set(...session.auth());
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('ACCOUNT_MISSING');
   });
@@ -211,7 +215,9 @@ describe('POST /api/auth/refresh — rotation', () => {
 
     // The thief's replay must also invalidate the *legitimate* client's token,
     // because we cannot tell which of the two is the attacker.
-    const afterBreach = await request(app).post('/api/auth/refresh').set('Cookie', successorCookies);
+    const afterBreach = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', successorCookies);
     expect(afterBreach.status).toBe(401);
 
     const live = await prisma.refreshToken.count({ where: { userId: user.id, revokedAt: null } });

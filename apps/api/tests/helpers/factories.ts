@@ -34,7 +34,9 @@ export async function resetDb(): Promise<void> {
 }
 
 export async function createUser(
-  overrides: Partial<Pick<User, 'name' | 'phone' | 'role' | 'isActive'>> & { password?: string } = {},
+  overrides: Partial<Pick<User, 'name' | 'phone' | 'role' | 'isActive'>> & {
+    password?: string;
+  } = {},
 ): Promise<User & { plainPassword: string }> {
   const password = overrides.password ?? DEFAULT_PASSWORD;
 
