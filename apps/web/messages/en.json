@@ -18,5 +18,44 @@
 
   "scaffold.title": "Foundation ready",
   "scaffold.subtitle": "Phase 1: schema and auth. Screens land in the phases that follow.",
-  "scaffold.tokens": "Guest status colours"
+  "scaffold.tokens": "Guest status colours",
+
+  "invite.bismillah": "IN THE NAME OF GOD",
+  "invite.hostsInvite": "{hosts} request your presence at",
+  "invite.personalFor": "Personal invitation for",
+  "invite.date": "Date",
+  "invite.time": "Time",
+  "invite.venue": "Venue",
+  "invite.openInMaps": "Open in Maps",
+  "invite.directions": "Directions",
+  "invite.companionsQuestion": "How many guests with you?",
+  "invite.companionsMax": "up to {count}",
+  "invite.companionsNone": "No companions",
+  "invite.seatsNote": "You'll receive one QR code covering {seats} seats.",
+  "invite.accept": "I'll be there",
+  "invite.decline": "Sorry, I can't make it",
+  "invite.deadlineNote": "Please reply before {date} · you can change your answer later",
+  "invite.changeableNote": "You can change your answer later",
+  "invite.personalInvitation": "Personal invitation",
+
+  "invite.confirmedTitle": "Your attendance is confirmed",
+  "invite.confirmedSubtitle": "See you on {weekday} {date} at {time}",
+  "invite.confirmedWithCompanions": "You and {count} companions",
+  "invite.showAtDoor": "Show this code at the entrance",
+  "invite.seatsAndCode": "{seats} seats · code {code}",
+  "invite.saveImage": "Save as image",
+  "invite.addCalendar": "Add to calendar",
+  "invite.editResponse": "Change my answer or companion count",
+
+  "invite.declinedTitle": "We've received your apology",
+  "invite.declinedBody": "Thank you for letting us know early — you'll be missed, and we hope to see you at a future occasion.",
+  "invite.changedMind": "Circumstances changed?",
+  "invite.canAttendAfterAll": "I can attend after all",
+
+  "invite.notFoundTitle": "This link isn't valid",
+  "invite.notFoundBody": "Make sure you opened the link exactly as it arrived, or contact your host.",
+  "invite.closedTitle": "The RSVP deadline has passed",
+  "invite.errorTitle": "Couldn't load the invitation",
+  "invite.retry": "Try again",
+  "invite.submitting": "Saving…"
 }

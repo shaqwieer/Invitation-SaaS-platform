@@ -2,16 +2,20 @@ import { Router } from 'express';
 import multer from 'multer';
 import {
   bulkGuestIdsSchema,
+  bulkSendSchema,
   bulkStatusSchema,
   createGuestSchema,
   importCommitSchema,
   listGuestsQuerySchema,
+  sendInviteSchema,
   updateGuestSchema,
   type BulkGuestIdsInput,
+  type BulkSendInput,
   type BulkStatusInput,
   type CreateGuestInput,
   type ImportCommitInput,
   type ListGuestsQuery,
+  type SendInviteInput,
   type UpdateGuestInput,
 } from '@da3wa/shared';
 import { requireEventOwner, requireGuestInEvent } from '../../middleware/requireEventOwner.js';
@@ -19,6 +23,7 @@ import { validate } from '../../middleware/validate.js';
 import { BadRequestError } from '../../lib/errors.js';
 import type { RateLimiters } from '../../middleware/rateLimit.js';
 import * as guests from './guests.service.js';
+import * as invitations from '../invitations/invitations.service.js';
 import { buildPreview, runImport } from './import.service.js';
 import { parseGuestFile } from './import.parser.js';
 
@@ -71,6 +76,27 @@ export function createGuestsRouter(limiters: RateLimiters): Router {
         req.user!.id,
       );
       res.json({ deleted });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * «إرسال للمحدّدين» / «أرسلها الآن» — build every link at once.
+   *
+   * The client opens WhatsApp once per link, which is why the design warns
+   * «سيفتح واتساب ٣٠ مرة متتالية».
+   */
+  router.post('/bulk-send', validate(bulkSendSchema), async (req, res, next) => {
+    try {
+      const body = req.body as BulkSendInput;
+      const result = await invitations.prepareBatchSend(
+        req.event!,
+        { guestIds: body.guestIds, onlyUnsent: body.onlyUnsent },
+        req.user!.id,
+        body.locale,
+      );
+      res.json(result);
     } catch (err) {
       next(err);
     }
@@ -155,6 +181,42 @@ export function createGuestsRouter(limiters: RateLimiters): Router {
       }
     },
   );
+
+  /**
+   * Build this guest's WhatsApp link and mark the invitation SENT.
+   *
+   * We never send anything — the host taps the link and the message leaves
+   * their own number. The click is therefore the only delivery signal that
+   * exists, which is why it is what flips the status.
+   */
+  router.post(
+    '/:guestId/send',
+    requireGuestInEvent(),
+    validate(sendInviteSchema),
+    async (req, res, next) => {
+      try {
+        const link = await invitations.prepareSend(
+          req.event!,
+          req.guest!,
+          req.user!.id,
+          (req.body as SendInviteInput).locale,
+        );
+        res.json({ link });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  /** Same link, without marking anything — for previewing the message. */
+  router.get('/:guestId/link', requireGuestInEvent(), async (req, res, next) => {
+    try {
+      const link = await invitations.previewLink(req.event!, req.guest!.id);
+      res.json({ link });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get('/:guestId', requireGuestInEvent(), async (req, res, next) => {
     try {

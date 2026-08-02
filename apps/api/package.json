@@ -33,6 +33,7 @@
     "pino": "^9.6.0",
     "pino-http": "^10.4.0",
     "prisma": "^6.2.1",
+    "qrcode": "^1.5.4",
     "zod": "^3.24.1"
   },
   "//": "prisma is a runtime dependency, not a dev one: the production container runs `prisma migrate deploy` on start, so the CLI must survive `npm ci --omit=dev`.",
@@ -44,6 +45,7 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^22.10.2",
     "@types/papaparse": "^5.5.2",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^6.0.2",
     "pino-pretty": "^13.0.0",
     "supertest": "^7.0.0",

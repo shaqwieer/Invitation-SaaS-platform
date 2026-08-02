@@ -17,7 +17,26 @@ export function direction(locale: AppLocale): 'rtl' | 'ltr' {
   return locale === 'ar' ? 'rtl' : 'ltr';
 }
 
-/** Falls back to the key itself so a missing string is obvious rather than blank. */
-export function t(locale: AppLocale, key: string): string {
-  return CATALOGUES[locale][key] ?? CATALOGUES[DEFAULT_LOCALE][key] ?? key;
+/**
+ * Look up a string, substituting {placeholders}.
+ *
+ * Falls back to the key itself so a missing string is loud rather than blank —
+ * an empty invitation card is worse than a visible `invite.accept`.
+ */
+export function t(
+  locale: AppLocale,
+  key: string,
+  params: Record<string, string | number> = {},
+): string {
+  const template = CATALOGUES[locale][key] ?? CATALOGUES[DEFAULT_LOCALE][key] ?? key;
+
+  return template.replace(/\{(\w+)\}/g, (match, name: string) => {
+    const value = params[name];
+    return value === undefined ? match : String(value);
+  });
+}
+
+/** Bind a locale once so components don't thread it through every call. */
+export function translator(locale: AppLocale) {
+  return (key: string, params?: Record<string, string | number>) => t(locale, key, params);
 }

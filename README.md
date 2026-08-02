@@ -4,8 +4,8 @@ Arabic-first (RTL) digital event invitations for the Saudi/Gulf market. A host c
 event, imports a guest list, sends each guest a personal WhatsApp link, collects RSVPs with
 companion counts, and checks guests in at the door by scanning a signed QR code.
 
-**Status: Phase 2 of 6 complete** — schema, auth, events, guests, and Excel/CSV import.
-See [Roadmap](#roadmap).
+**Status: Phase 3 of 6 complete** — schema, auth, events, guests, Excel/CSV import, invite
+links, RSVP and QR codes. See [Roadmap](#roadmap).
 
 ---
 
@@ -225,7 +225,7 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 | ----- | -------------------------------- | ----------- |
 | 1     | Schema + auth                    | ✅ Complete |
 | 2     | Events, guests, Excel/CSV import | ✅ Complete |
-| 3     | Invite links, RSVP, QR codes     | Next        |
+| 3     | Invite links, RSVP, QR codes     | ✅ Complete |
 | 4     | Scanner + check-in               |             |
 | 5     | Dashboard + exports              |             |
 | 6     | Payments + admin panel           |             |
@@ -255,6 +255,20 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 - **Import duplicates are detected before insert**, against both the incoming batch and the
   rows already stored. Relying on the `@@unique([eventId, phone])` constraint instead would
   abort the whole statement on the first collision and produce no per-row report.
+- **We never send a WhatsApp message.** The API builds a `wa.me` deep link and the host taps
+  it, so the invitation leaves the host's own number — the product's central promise, and the
+  reason the _click_ (not a delivery receipt) is what marks an invitation `SENT`.
+- **The QR carries a signed reference, never guest data.** Payload is
+  `1.<eventId>.<invitationId>.<issuedAt>.<hmac>`. A photographed code reveals no name, phone,
+  or invite URL, and `eventId` sits inside the signed region so a code cannot be moved
+  between events. It deliberately does _not_ carry the invite token — that is the credential
+  in `/invite/<token>`, and embedding it would let anyone who photographs a screen at the
+  door open that guest's invitation.
+- **RSVP is one atomic write.** `attending` and `companions` arrive together, because the
+  design puts the companion picker _above_ the confirm button: in Gulf families the real
+  answer is "how many". Guests may change their reply until the deadline; `RsvpResponse` is
+  the append-only record and `Guest.status` is its projection. `ATTENDED` is the one-way
+  door.
 
 ---
 
@@ -276,3 +290,20 @@ All `/api/events/**` routes require a bearer token and are scoped to the caller'
 | `POST`                 | `/api/events/:eventId/guests/import/parse`                | multipart `file`; .xlsx or .csv          |
 | `POST`                 | `/api/events/:eventId/guests/import/validate`             | Dry run — the errors screen              |
 | `POST`                 | `/api/events/:eventId/guests/import/commit`               | Partial success                          |
+| `POST`                 | `/api/events/:eventId/guests/:guestId/send`               | Builds the wa.me link, marks `SENT`      |
+| `GET`                  | `/api/events/:eventId/guests/:guestId/link`               | Preview; marks nothing                   |
+| `POST`                 | `/api/events/:eventId/guests/bulk-send`                   | A selection, or everyone unsent          |
+
+Public — no authentication. The token is the only credential a guest holds, so every route
+here is rate limited: 60 bits of entropy is unguessable only if guessing is bounded.
+
+| Method | Path                         | Notes                             |
+| ------ | ---------------------------- | --------------------------------- |
+| `GET`  | `/api/invite/:token`         | Marks `OPENED`; never cached      |
+| `POST` | `/api/invite/:token/respond` | Atomic `attending` + `companions` |
+| `GET`  | `/api/invite/:token/qr`      | Signed payload + seat count       |
+| `GET`  | `/api/invite/:token/qr.png`  | Downloadable PNG                  |
+
+The guest-facing page is server-rendered at `/invite/<token>` — deliberately outside the
+`/[locale]` prefix, because a guest opens a bare link straight from WhatsApp with no locale
+to carry. `?lang=en` switches to the LTR mirror.

@@ -18,5 +18,44 @@
 
   "scaffold.title": "الأساس جاهز",
   "scaffold.subtitle": "المرحلة الأولى: قاعدة البيانات والمصادقة. الشاشات تأتي في المراحل التالية.",
-  "scaffold.tokens": "ألوان حالات الضيف"
+  "scaffold.tokens": "ألوان حالات الضيف",
+
+  "invite.bismillah": "بسم الله الرحمن الرحيم",
+  "invite.hostsInvite": "يتشرّف {hosts} بدعوتكم لحضور",
+  "invite.personalFor": "دعوة خاصة لـ",
+  "invite.date": "التاريخ",
+  "invite.time": "الوقت",
+  "invite.venue": "المكان",
+  "invite.openInMaps": "افتح الموقع في الخرائط",
+  "invite.directions": "الاتجاهات",
+  "invite.companionsQuestion": "كم عدد المرافقين؟",
+  "invite.companionsMax": "حتى {count} أشخاص",
+  "invite.companionsNone": "بدون مرافقين",
+  "invite.seatsNote": "سيصلك رمز دخول واحد يشمل {seats} مقاعد.",
+  "invite.accept": "يسعدني الحضور",
+  "invite.decline": "أعتذر عن الحضور",
+  "invite.deadlineNote": "يرجى الرد قبل {date} · يمكنك تغيير ردّك لاحقًا",
+  "invite.changeableNote": "يمكنك تغيير ردّك لاحقًا",
+  "invite.personalInvitation": "دعوة شخصية",
+
+  "invite.confirmedTitle": "تم تأكيد حضورك",
+  "invite.confirmedSubtitle": "في انتظارك يوم {weekday} {date}، {time}",
+  "invite.confirmedWithCompanions": "في انتظارك أنت و{count} مرافقين",
+  "invite.showAtDoor": "اعرض هذا الرمز عند مدخل القاعة",
+  "invite.seatsAndCode": "{seats} مقاعد · رمز {code}",
+  "invite.saveImage": "حفظ كصورة",
+  "invite.addCalendar": "أضف للتقويم",
+  "invite.editResponse": "تعديل ردّي أو عدد المرافقين",
+
+  "invite.declinedTitle": "وصلنا اعتذارك، ونتفهّمه",
+  "invite.declinedBody": "شكرًا لإخبارنا مبكرًا — سنفتقد وجودك، ونسأل الله أن يجمعنا بك في مناسبة قادمة.",
+  "invite.changedMind": "تغيّر ظرفك؟",
+  "invite.canAttendAfterAll": "أستطيع الحضور بعد كل شيء",
+
+  "invite.notFoundTitle": "هذا الرابط غير صالح",
+  "invite.notFoundBody": "تأكد من فتح الرابط كما وصلك في الرسالة، أو تواصل مع صاحب الدعوة.",
+  "invite.closedTitle": "انتهى موعد الرد",
+  "invite.errorTitle": "تعذّر تحميل الدعوة",
+  "invite.retry": "إعادة المحاولة",
+  "invite.submitting": "جارٍ الحفظ…"
 }
