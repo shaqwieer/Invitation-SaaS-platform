@@ -187,8 +187,24 @@ export async function respond(
       where: { id: invitation.id },
       data: {
         respondedAt: now,
-        // Re-issued on every confirmation: changing the companion count changes
-        // how many seats the code admits, so the old one must not linger.
+        /*
+         * Stamped on each confirmation, cleared on a decline.
+         *
+         * This is a record of when the code was minted — NOT a validity gate.
+         * An older QR still verifies: the signature covers
+         * (eventId, invitationId, issuedAt) and nothing compares issuedAt back
+         * to this column.
+         *
+         * That is deliberate. The payload carries no seat count and no status,
+         * so the scanner must read both live from the database anyway — which
+         * means a guest who confirms for four, screenshots, then drops to two is
+         * admitted for two, using the screenshot. Rejecting the stale image
+         * instead would show "invalid" at the door for a guest who is genuinely
+         * confirmed, which is worse for everyone standing behind them.
+         *
+         * Phase 4's scanner therefore treats a valid signature as proof of
+         * origin only, and takes seats and status from the row.
+         */
         qrIssuedAt: input.attending ? now : null,
       },
     }),

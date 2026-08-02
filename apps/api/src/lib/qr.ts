@@ -69,9 +69,15 @@ export function signQrToken(payload: QrPayload): string {
  * exit leaks how much of a forged signature was correct, which is enough to
  * reconstruct one guess at a time.
  *
- * This only proves the code was minted by us and names an event and an
- * invitation. Whether that invitation is *this* event's, still confirmed, and
- * not already used is the scanner's job (phase 4).
+ * A valid signature proves **origin only** — that we minted this code, for this
+ * event and this invitation. It says nothing about how many seats the guest is
+ * owed or whether they are still confirmed: neither travels in the payload, so
+ * the scanner reads both live from the database. A screenshot taken before the
+ * guest changed their companion count therefore admits the *current* number,
+ * not the one on the screen.
+ *
+ * Whether the invitation belongs to *this* event, is still confirmed, and has
+ * not already been used is the scanner's job (phase 4).
  */
 export function verifyQrToken(token: string): QrVerifyResult {
   if (typeof token !== 'string' || token.length === 0 || token.length > 512) {

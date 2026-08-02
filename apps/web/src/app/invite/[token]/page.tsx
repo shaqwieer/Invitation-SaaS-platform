@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { fetchInvitation } from '@/lib/api';
+import { fetchInvitation } from '@/lib/api.server';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { InviteScreen } from './InviteScreen';
 import { InviteMissing } from './InviteMissing';

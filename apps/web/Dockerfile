@@ -25,6 +25,15 @@ CMD ["npm", "-w", "@da3wa/web", "run", "dev"]
 # ── Build ────────────────────────────────────────────────────────────────────
 FROM deps AS build
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Next inlines every NEXT_PUBLIC_* value into the client bundle at BUILD time,
+# so this cannot be supplied as a runtime environment variable — setting it in
+# .env after the image exists has no effect whatsoever. Left at the default in
+# production, guests' browsers would request http://localhost:4000 for the QR
+# image and the RSVP POST, and both would fail.
+ARG NEXT_PUBLIC_API_URL=http://localhost:4000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 COPY . .
 RUN npm -w @da3wa/web run build
 

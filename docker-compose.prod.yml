@@ -26,6 +26,9 @@ services:
   web:
     build:
       target: production
+      args:
+        # Baked into the client bundle at build time — a runtime value is ignored.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL to your public https origin before building}
     environment:
       NODE_ENV: production
     volumes: !override []

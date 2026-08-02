@@ -18,3 +18,8 @@ process.env.JWT_ACCESS_SECRET ||= 'test_access_secret_0123456789';
 process.env.JWT_REFRESH_SECRET ||= 'test_refresh_secret_9876543210';
 process.env.QR_HMAC_SECRET ||= 'test_qr_hmac_secret_0123456789';
 process.env.JWT_ACCESS_TTL ||= '15m';
+
+// Mirrors production, where the API sits behind nginx — and behind Next for
+// server-rendered invite lookups. Supertest sends no X-Forwarded-For unless a
+// test sets one, so this changes nothing except making that header meaningful.
+process.env.TRUST_PROXY ||= '1';

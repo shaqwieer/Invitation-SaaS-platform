@@ -332,6 +332,33 @@ describe('enumeration resistance', () => {
     expect(blocked.status).toBe(429);
   });
 
+  it('buckets guests separately by forwarded IP', async () => {
+    // Regression guard. Server-rendered invite pages reach the API from the web
+    // container, so unless the guest's IP is forwarded *and* trusted, every
+    // guest on the platform shares one bucket — and invitations start failing to
+    // load the moment a host sends more than the limit in a minute.
+    const strict = createApp({ rateLimits: { inviteLookup: { windowMs: 60_000, limit: 2 } } });
+
+    for (let guestNumber = 1; guestNumber <= 6; guestNumber++) {
+      const res = await request(strict)
+        .get(`/api/invite/${token}`)
+        .set('X-Forwarded-For', `203.0.113.${guestNumber}`);
+
+      expect(res.status, `guest ${guestNumber}`).toBe(200);
+    }
+  });
+
+  it('still limits a single IP hammering the endpoint', async () => {
+    const strict = createApp({ rateLimits: { inviteLookup: { windowMs: 60_000, limit: 2 } } });
+    const from = (path: string) => request(strict).get(path).set('X-Forwarded-For', '198.51.100.7');
+
+    await from('/api/invite/aaaabbbbcccc').expect(404);
+    await from('/api/invite/aaaabbbbccce').expect(404);
+
+    const blocked = await from('/api/invite/aaaabbbbccdd');
+    expect(blocked.status).toBe(429);
+  });
+
   it('answers a wrong token identically whether or not the event exists', async () => {
     const missing = await request(app).get('/api/invite/aaaabbbbcccc');
     const alsoMissing = await request(app).get('/api/invite/zzzzyyyyxxxx');
