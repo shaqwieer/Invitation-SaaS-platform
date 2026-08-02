@@ -21,6 +21,12 @@ declare global {
        * is the only event a scanner request may touch.
        */
       scanUser?: ScanUser;
+      /**
+       * The exact bytes of the request body, captured before JSON parsing.
+       * Webhook signatures cover these — re-serializing the parsed object does
+       * not reproduce what the gateway signed.
+       */
+      rawBody?: Buffer;
       /** Correlation id echoed in logs and error bodies. */
       id?: string;
     }

@@ -16,6 +16,9 @@ import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createEventsRouter } from './modules/events/events.routes.js';
 import { createInviteRouter } from './modules/invite/invite.routes.js';
 import { createScanRouter } from './modules/scan/scan.routes.js';
+import { createOrdersRouter } from './modules/orders/orders.routes.js';
+import { createWebhookRouter } from './modules/webhooks/webhook.routes.js';
+import { createAdminRouter } from './modules/admin/admin.routes.js';
 
 export interface CreateAppOptions {
   /** Override limits per instance — tests use this to make a limiter trip quickly. */
@@ -69,7 +72,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
     }),
   );
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(
+    express.json({
+      limit: '1mb',
+      // Keep the raw bytes for webhook signature verification. Doing it here
+      // rather than with a separate express.raw() mount means one body parser
+      // and no route-ordering trap for whoever adds the next webhook.
+      verify: (req, _res, buf) => {
+        (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(cookieParser());
 
@@ -78,8 +91,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
     res.json({ status: 'ok', uptime: process.uptime() });
   });
 
+  // Webhooks sit ahead of the general limiter: gateways retry aggressively, and
+  // a 429 to a payment callback is a lost activation. Their own protection is
+  // the signature check plus the idempotency constraint.
+  app.use('/api/webhooks', createWebhookRouter());
+
   app.use('/api', limiters.general);
   app.use('/api/auth', createAuthRouter(limiters));
+  app.use('/api/orders', createOrdersRouter());
+  app.use('/api/admin', createAdminRouter());
   app.use('/api/events', createEventsRouter(limiters));
   // Public — guests reach this with no account, holding only their token.
   app.use('/api/invite', createInviteRouter(limiters));

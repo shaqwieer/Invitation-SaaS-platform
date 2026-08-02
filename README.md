@@ -4,9 +4,10 @@ Arabic-first (RTL) digital event invitations for the Saudi/Gulf market. A host c
 event, imports a guest list, sends each guest a personal WhatsApp link, collects RSVPs with
 companion counts, and checks guests in at the door by scanning a signed QR code.
 
-**Status: Phase 5 of 6 complete** — schema, auth, events, guests, Excel/CSV import, invite
-links, RSVP, QR codes, the reception scanner, and the host dashboard with exports and the
-post-event report. See [Roadmap](#roadmap).
+**Status: MVP complete — all 6 phases.** Schema and auth, events and guests, Excel/CSV
+import, invite links with RSVP and QR codes, the reception scanner, the host dashboard with
+exports and the post-event report, and payments with the admin panel.
+See [Roadmap](#roadmap).
 
 ---
 
@@ -238,7 +239,17 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 | 3     | Invite links, RSVP, QR codes     | ✅ Complete |
 | 4     | Scanner + check-in               | ✅ Complete |
 | 5     | Dashboard + exports              | ✅ Complete |
-| 6     | Payments + admin panel           |             |
+| 6     | Payments + admin panel           | ✅ Complete |
+
+### Known gaps
+
+- **Discount codes** are accepted by the checkout schema but rejected with
+  `DISCOUNT_NOT_AVAILABLE`: they need a catalogue model that does not exist yet. Refusing a
+  code plainly beats silently ignoring one the host believes they applied.
+- **Offline scanning** was scoped out of the MVP (see the decision list above). The scanner
+  is online-only, with a real connectivity indicator.
+- **Only the stub payment provider is wired.** A real gateway is one class implementing
+  `PaymentProvider` — see `apps/api/src/services/payment/index.ts`.
 
 ### Decisions worth knowing
 
@@ -373,3 +384,54 @@ one scan admits a family, which is why the door log shows «١٤٢ مقعدًا 
 Exported phone numbers are written as text with an explicit `@` cell format. Excel otherwise
 reads `+966554128830` as a formula or a number and silently destroys it — the most common
 way an exported contact list arrives useless.
+
+Orders and payments — host-authenticated:
+
+| Method       | Path                       | Notes                                                  |
+| ------------ | -------------------------- | ------------------------------------------------------ |
+| `GET` `POST` | `/api/orders`              | List / create. **The request carries no price.**       |
+| `GET`        | `/api/orders/:orderId`     |                                                        |
+| `POST`       | `/api/orders/:orderId/pay` | Opens a payment with the provider                      |
+| `POST`       | `/api/webhooks/:provider`  | Gateway callback — signed, idempotent, unauthenticated |
+
+Admin — `ADMIN` role only:
+
+| Method        | Path                                           |
+| ------------- | ---------------------------------------------- |
+| `GET`         | `/api/admin/stats`                             |
+| `GET` `PATCH` | `/api/admin/users` · `/users/:userId`          |
+| `GET` `PATCH` | `/api/admin/events` · `/events/:eventId`       |
+| `GET` `PUT`   | `/api/admin/packages` · `/api/admin/templates` |
+| `GET`         | `/api/admin/orders`                            |
+
+Web: `/<locale>/checkout/:orderId` and `/<locale>/admin`.
+
+### Payments
+
+Everything the API knows about a gateway lives behind `PaymentProvider`
+(`apps/api/src/services/payment/index.ts`). Swapping the stub for Moyasar, Tap or HyperPay
+means writing one class — no caller sees a provider-specific shape.
+
+Three properties carry this area:
+
+- **The server prices the order.** Nothing in the request body carries an amount; every
+  figure is read from the catalogue. A client can change _what_ it buys — validated too —
+  but there is no field in which it could state what that costs.
+- **Webhook signatures cover the raw bytes.** `express.json`'s `verify` hook keeps them,
+  because `JSON.stringify(JSON.parse(body))` is not what the gateway signed.
+- **Deliveries are idempotent.** `@@unique([provider, providerEventId])` rejects a retry at
+  the database before it can double-apply a payment or fire the new-order notification
+  twice. Every gateway retries; most retry aggressively. Unknown event types are recorded
+  and acknowledged with 200 rather than failed — a 500 makes a gateway retry forever and
+  eventually disable the endpoint.
+
+Settlement runs through one function whether the stub answers synchronously or a real
+gateway calls back later, so the path that matters in production is the one exercised in
+development.
+
+### What the admin panel deliberately cannot do
+
+There is no route into a host's guest list and no way to answer on a guest's behalf.
+Support can grant headroom, disable an account and edit the catalogue; the personal data and
+the guest's own word stay with the host. An admin also cannot demote or disable their own
+account — there is no second door.
