@@ -14,3 +14,4 @@ export * from './schemas/guest.js';
 export * from './schemas/import.js';
 export * from './schemas/invitation.js';
 export * from './schemas/scan.js';
+export * from './schemas/dashboard.js';

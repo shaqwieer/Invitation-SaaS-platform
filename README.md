@@ -4,8 +4,9 @@ Arabic-first (RTL) digital event invitations for the Saudi/Gulf market. A host c
 event, imports a guest list, sends each guest a personal WhatsApp link, collects RSVPs with
 companion counts, and checks guests in at the door by scanning a signed QR code.
 
-**Status: Phase 4 of 6 complete** — schema, auth, events, guests, Excel/CSV import, invite
-links, RSVP, QR codes, and the reception scanner. See [Roadmap](#roadmap).
+**Status: Phase 5 of 6 complete** — schema, auth, events, guests, Excel/CSV import, invite
+links, RSVP, QR codes, the reception scanner, and the host dashboard with exports and the
+post-event report. See [Roadmap](#roadmap).
 
 ---
 
@@ -236,7 +237,7 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 | 2     | Events, guests, Excel/CSV import | ✅ Complete |
 | 3     | Invite links, RSVP, QR codes     | ✅ Complete |
 | 4     | Scanner + check-in               | ✅ Complete |
-| 5     | Dashboard + exports              |             |
+| 5     | Dashboard + exports              | ✅ Complete |
 | 6     | Payments + admin panel           |             |
 
 ### Decisions worth knowing
@@ -341,3 +342,34 @@ Host-side, over the same data:
 
 The scanner UI is at `/scan/<eventId>`. The session lives in `localStorage`, scoped per
 event, so staff can reload or hand the phone over without going back through the gate.
+
+Dashboard, report and exports — host-authenticated, scoped to their own events:
+
+| Method | Path                                           | Notes                                       |
+| ------ | ---------------------------------------------- | ------------------------------------------- |
+| `GET`  | `/api/events/:eventId/dashboard`               | §03 aggregates; carries its own `updatedAt` |
+| `GET`  | `/api/events/:eventId/report`                  | §12 post-event report                       |
+| `GET`  | `/api/events/:eventId/exports/guests.xlsx`     | Guest list                                  |
+| `GET`  | `/api/events/:eventId/exports/attendance.xlsx` | Report across four sheets                   |
+
+### Web routes
+
+| Path                               | Who                                     |
+| ---------------------------------- | --------------------------------------- |
+| `/<locale>/login`                  | Host                                    |
+| `/<locale>/dashboard`              | Host — polls every 30s and on tab focus |
+| `/<locale>/events/:eventId/report` | Host                                    |
+| `/invite/<token>`                  | Guest — no account, no locale prefix    |
+| `/scan/<eventId>`                  | Door staff — event password, no account |
+
+### A note on the numbers
+
+Rates are returned as ratios in 0–1, never pre-formatted percentages: Arabic renders ٥٨٪ and
+English 58%, and a server that has already decided cannot serve both. Attendance is `null`
+rather than `0` before anyone has been admitted — "0% attended" on the morning of a wedding
+reads as a catastrophe, when the truth is "not yet". Seats are summed, never guest counts:
+one scan admits a family, which is why the door log shows «١٤٢ مقعدًا دخل · ٥٨ عملية مسح».
+
+Exported phone numbers are written as text with an explicit `@` cell format. Excel otherwise
+reads `+966554128830` as a formula or a number and silently destroys it — the most common
+way an exported contact list arrives useless.

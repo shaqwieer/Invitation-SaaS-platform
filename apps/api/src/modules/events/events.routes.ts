@@ -11,6 +11,13 @@ import { validate } from '../../middleware/validate.js';
 import { getGuestQuota } from '../../lib/quota.js';
 import type { RateLimiters } from '../../middleware/rateLimit.js';
 import { createGuestsRouter } from '../guests/guests.routes.js';
+import { dashboardSummary } from '../dashboard/dashboard.service.js';
+import { attendanceReport } from '../reports/report.service.js';
+import {
+  attendanceWorkbook,
+  contentDisposition,
+  guestListWorkbook,
+} from '../exports/export.service.js';
 import * as scan from '../scan/scan.service.js';
 import * as sessions from '../scan/session.service.js';
 import { scanLog, scanStats } from '../scan/log.service.js';
@@ -79,6 +86,67 @@ export function createEventsRouter(limiters: RateLimiters): Router {
   router.get('/:eventId/quota', requireEventOwner(), async (req, res, next) => {
     try {
       res.json({ quota: await getGuestQuota(req.event!.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── Dashboard, report and exports ──────────────────────────────────────────
+
+  /** §03. Polled by the dashboard, so it carries its own `updatedAt`. */
+  router.get('/:eventId/dashboard', requireEventOwner(), async (req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store, private');
+      res.json({ summary: await dashboardSummary(req.event!) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** §12. */
+  router.get('/:eventId/report', requireEventOwner(), async (req, res, next) => {
+    try {
+      res.json({ report: await attendanceReport(req.event!) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/:eventId/exports/guests.xlsx', requireEventOwner(), async (req, res, next) => {
+    try {
+      const workbook = await guestListWorkbook(req.event!);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        contentDisposition('guests.xlsx', `${req.event!.title} — قائمة الضيوف.xlsx`),
+      );
+      // write() streams into the response rather than buffering the whole
+      // workbook, which matters at 600 guests with a slow venue connection.
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/:eventId/exports/attendance.xlsx', requireEventOwner(), async (req, res, next) => {
+    try {
+      const report = await attendanceReport(req.event!);
+      const workbook = await attendanceWorkbook(req.event!, report);
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        contentDisposition('attendance.xlsx', `${req.event!.title} — تقرير الحضور.xlsx`),
+      );
+      await workbook.xlsx.write(res);
+      res.end();
     } catch (err) {
       next(err);
     }

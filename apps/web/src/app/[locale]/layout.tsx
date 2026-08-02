@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { AuthProvider } from '@/lib/auth';
 import { LOCALES, direction, isLocale } from '@/lib/i18n';
 
 export function generateStaticParams() {
@@ -24,7 +25,9 @@ export default function LocaleLayout({
 
   return (
     <div dir={direction(params.locale)} lang={params.locale} className="min-h-screen">
-      {children}
+      {/* Host session lives here. The invite and scanner routes sit outside this
+          segment and deliberately have no host auth at all. */}
+      <AuthProvider>{children}</AuthProvider>
     </div>
   );
 }
