@@ -23,7 +23,11 @@ services:
     # Loopback only — nginx is the sole caller. The host port is configurable
     # because a VPS often already runs something on 4000; nginx must then be
     # pointed at the same value. The container port never moves.
-    ports:
+    #
+    # !override, not a plain list: a plain list merges with the base file's
+    # '4000:4000' rather than replacing it, so the service would keep publishing
+    # on every interface — and on a host where 4000 is taken, fail the bind.
+    ports: !override
       - '127.0.0.1:${API_HOST_PORT:-4000}:4000'
 
   web:
@@ -35,5 +39,6 @@ services:
     environment:
       NODE_ENV: production
     volumes: !override []
-    ports:
+    # !override for the same reason as the API above.
+    ports: !override
       - '127.0.0.1:${WEB_HOST_PORT:-3000}:3000'
