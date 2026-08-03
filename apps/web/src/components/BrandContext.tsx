@@ -20,6 +20,7 @@ const FALLBACK: PublicBranding = {
   taglineEn: 'A Saudi platform for digital invitations and event attendance.',
   logoMark: 'د',
   logoUrl: null,
+  customDesignPriceHalalas: 19_900,
 };
 
 const BrandCtx = createContext<PublicBranding>(FALLBACK);

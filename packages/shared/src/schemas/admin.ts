@@ -92,6 +92,12 @@ export const updateSettingsSchema = z.object({
   taglineAr: z.string().trim().max(240),
   taglineEn: z.string().trim().max(240),
   logoMark: z.string().trim().min(1).max(2),
+  /**
+   * Halalas. The "from" price a custom design is advertised at, and what the
+   * operator's quote form starts from — the agreed figure still lands on the
+   * request row.
+   */
+  customDesignPriceHalalas: z.number().int().min(0).max(10_000_000).default(19_900),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -104,4 +110,6 @@ export interface PublicBranding {
   logoMark: string;
   /** Null when no image is uploaded and the mark should be drawn instead. */
   logoUrl: string | null;
+  /** Advertised "from" price for a custom design, in halalas. */
+  customDesignPriceHalalas: number;
 }

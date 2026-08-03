@@ -10,6 +10,7 @@ export const eventTypeSchema = z.enum([
 ]);
 export const eventStatusSchema = z.enum(['DRAFT', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
 export const sectionModeSchema = z.enum(['SINGLE', 'SPLIT']);
+export const cardDesignModeSchema = z.enum(['TEMPLATE', 'CUSTOM_REQUEST', 'UPLOAD']);
 
 const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'اللون يجب أن يكون بصيغة #RRGGBB');
 
@@ -32,6 +33,7 @@ const eventCore = {
   venueLng: z.number().min(-180).max(180).nullish(),
   venueMapUrl: z.string().url().max(500).nullish(),
 
+  cardDesignMode: cardDesignModeSchema.default('TEMPLATE'),
   templateId: z.string().min(1).nullish(),
   packageId: z.string().min(1).nullish(),
   cardColor: hexColour.default('#0E5A45'),

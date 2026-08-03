@@ -97,6 +97,7 @@ export async function dashboardSummary(event: Event): Promise<DashboardSummary> 
     responseHours,
     activity,
     awaiting,
+    sendable,
   ] = await Promise.all([
     guestStatusCounts(event.id),
 
@@ -131,6 +132,12 @@ export async function dashboardSummary(event: Event): Promise<DashboardSummary> 
       },
       _min: { sentAt: true },
       _count: { _all: true },
+    }),
+
+    // Unsent invitations the host can actually send: the rest are delegated
+    // slots with no number, waiting on the person distributing them.
+    prisma.guest.count({
+      where: { eventId: event.id, status: 'NOT_SENT', phone: { not: null } },
     }),
   ]);
 
@@ -192,6 +199,11 @@ export async function dashboardSummary(event: Event): Promise<DashboardSummary> 
       oldestSentDaysAgo: oldestSent
         ? Math.floor((Date.now() - oldestSent.getTime()) / DAY_MS)
         : null,
+    },
+
+    pendingSend: {
+      sendable,
+      delegated: Math.max(0, counts.NOT_SENT - sendable),
     },
 
     activity,

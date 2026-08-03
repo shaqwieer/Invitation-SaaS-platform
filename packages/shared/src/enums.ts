@@ -62,6 +62,45 @@ export const GuestSection = {
 } as const;
 export type GuestSection = (typeof GuestSection)[keyof typeof GuestSection];
 
+/**
+ * The three routes to a card, as the host is asked to choose between them.
+ *
+ * TEMPLATE       — pick one of ours; the operator then tailors it to the event.
+ * CUSTOM_REQUEST — the operator designs it from scratch, priced per request.
+ * UPLOAD         — the host brings their own file.
+ *
+ * Mutually exclusive on purpose. The fields behind them (templateId,
+ * cardImageData, customCardUrl) can all hold a value at once, and a precedence
+ * rule used to be the only thing deciding which won — a rule the host could not
+ * see and therefore could not predict.
+ */
+export const CardDesignMode = {
+  TEMPLATE: 'TEMPLATE',
+  CUSTOM_REQUEST: 'CUSTOM_REQUEST',
+  UPLOAD: 'UPLOAD',
+} as const;
+export type CardDesignMode = (typeof CardDesignMode)[keyof typeof CardDesignMode];
+
+export const CARD_DESIGN_MODES = Object.values(CardDesignMode);
+
+/** REQUESTED → IN_PROGRESS → DELIVERED, or CANCELLED from either. */
+export const DesignRequestStatus = {
+  REQUESTED: 'REQUESTED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  DELIVERED: 'DELIVERED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type DesignRequestStatus =
+  (typeof DesignRequestStatus)[keyof typeof DesignRequestStatus];
+
+export const DESIGN_REQUEST_STATUSES = Object.values(DesignRequestStatus);
+
+/** A request in one of these is still live, so a second one is refused. */
+export const OPEN_DESIGN_REQUEST_STATUSES: DesignRequestStatus[] = [
+  DesignRequestStatus.REQUESTED,
+  DesignRequestStatus.IN_PROGRESS,
+];
+
 export const UserRole = {
   HOST: 'HOST',
   ADMIN: 'ADMIN',

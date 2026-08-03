@@ -2,12 +2,15 @@ import { Router } from 'express';
 import {
   adminListQuerySchema,
   adminUpdateEventSchema,
+  designRequestStatusSchema,
+  updateDesignRequestSchema,
   updateUserSchema,
   upsertPackageSchema,
   upsertTemplateSchema,
   type AdminListQuery,
   type AdminUpdateEventInput,
   type PlatformStats,
+  type UpdateDesignRequestInput,
   type UpdateUserInput,
   type UpsertPackageInput,
   type UpsertTemplateInput,
@@ -26,6 +29,7 @@ import {
   toPublicBranding,
   updateSettings,
 } from '../settings/settings.service.js';
+import * as design from '../design/design.service.js';
 
 /**
  * Logos are small by nature. The cap is what stops someone pasting a 20 MB
@@ -37,6 +41,18 @@ const logoUpload = multer({
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
     cb(null, allowed.includes(file.mimetype));
+  },
+});
+
+/**
+ * The delivered design lands in the same column as a host's own upload, so it
+ * carries the same limits — 3 MB, raster only. See the host card route for why.
+ */
+const cardUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype));
   },
 });
 
@@ -321,11 +337,37 @@ export function createAdminRouter(): Router {
 
   router.get('/templates', async (_req, res, next) => {
     try {
+      const templates = await prisma.template.findMany({
+        orderBy: [{ sortOrder: 'asc' }, { nameEn: 'asc' }],
+        // Selected explicitly rather than `include`d: previewImageData is a
+        // Bytes column, and left in it would be JSON-serialised into every
+        // listing — megabytes of base64 to render a table of names.
+        select: {
+          id: true,
+          key: true,
+          nameAr: true,
+          nameEn: true,
+          category: true,
+          previewImageUrl: true,
+          previewImageMime: true,
+          previewImageVersion: true,
+          priceHalalas: true,
+          isActive: true,
+          sortOrder: true,
+          _count: { select: { events: true } },
+        },
+      });
+
       res.json({
-        templates: await prisma.template.findMany({
-          orderBy: [{ sortOrder: 'asc' }, { nameEn: 'asc' }],
-          include: { _count: { select: { events: true } } },
-        }),
+        templates: templates.map(
+          ({ previewImageMime, previewImageVersion, previewImageUrl, ...template }) => ({
+            ...template,
+            previewImageUrl: previewImageMime
+              ? `/api/templates/${template.id}/preview?v=${previewImageVersion}`
+              : previewImageUrl,
+            hasPreviewImage: previewImageMime !== null,
+          }),
+        ),
       });
     } catch (err) {
       next(err);
@@ -354,6 +396,142 @@ export function createAdminRouter(): Router {
       next(err);
     }
   });
+
+  /**
+   * Publish a template's gallery artwork.
+   *
+   * This is «ارفقها في الموقع» made literal. Without it a template is a name in
+   * a list, and the host's gallery — the screen the whole first design option
+   * rests on — has nothing to show.
+   */
+  router.post('/templates/:templateId/preview', cardUpload.single('file'), async (req, res, next) => {
+    try {
+      if (!req.file) {
+        throw new BadRequestError('Upload a PNG, JPEG or WebP under 3 MB', 'PREVIEW_INVALID');
+      }
+
+      const current = await prisma.template.findUnique({
+        where: { id: req.params.templateId! },
+        select: { previewImageVersion: true },
+      });
+      if (!current) throw new BadRequestError('Unknown template', 'TEMPLATE_NOT_FOUND');
+
+      const template = await prisma.template.update({
+        where: { id: req.params.templateId! },
+        data: {
+          previewImageData: new Uint8Array(req.file.buffer),
+          previewImageMime: req.file.mimetype,
+          previewImageVersion: current.previewImageVersion + 1,
+        },
+        select: { id: true, key: true, previewImageVersion: true },
+      });
+
+      await audit({
+        action: 'admin.template_preview',
+        actorId: req.user!.id,
+        targetType: 'Template',
+        targetId: template.id,
+        meta: { key: template.key, mime: req.file.mimetype, bytes: req.file.size },
+      });
+
+      res.json({ template });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/templates/:templateId/preview', async (req, res, next) => {
+    try {
+      const current = await prisma.template.findUnique({
+        where: { id: req.params.templateId! },
+        select: { previewImageVersion: true },
+      });
+      if (!current) throw new BadRequestError('Unknown template', 'TEMPLATE_NOT_FOUND');
+
+      const template = await prisma.template.update({
+        where: { id: req.params.templateId! },
+        data: {
+          previewImageData: null,
+          previewImageMime: null,
+          previewImageVersion: current.previewImageVersion + 1,
+        },
+        select: { id: true, key: true },
+      });
+
+      await audit({
+        action: 'admin.template_preview_clear',
+        actorId: req.user!.id,
+        targetType: 'Template',
+        targetId: template.id,
+        meta: { key: template.key },
+      });
+
+      res.json({ template });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── Custom design requests ─────────────────────────────────────────────────
+  /**
+   * The operator's design queue.
+   *
+   * This is the one admin surface that deliberately *does* carry a host's phone
+   * number, because the whole workflow is «انا اتواصل معاه»: the operator has to
+   * call the person to find out what they want drawn. Everything else about the
+   * host — their guests, their numbers — stays out of reach as before.
+   */
+  router.get('/design-requests', async (req, res, next) => {
+    try {
+      // Parsed, not cast: an arbitrary string reaching a Prisma enum filter is a
+      // 500 rather than a 400, and an admin session is not a reason to skip
+      // validating input.
+      const parsed = designRequestStatusSchema.safeParse(req.query.status);
+      res.json({ requests: await design.listRequests(parsed.success ? parsed.data : undefined) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch(
+    '/design-requests/:requestId',
+    validate(updateDesignRequestSchema),
+    async (req, res, next) => {
+      try {
+        const request = await design.updateRequest(
+          req.params.requestId!,
+          req.body as UpdateDesignRequestInput,
+          req.user!.id,
+        );
+        res.json({ request });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  /** Hand over the finished file. Same limits as the host's own card upload. */
+  router.post(
+    '/design-requests/:requestId/artwork',
+    cardUpload.single('file'),
+    async (req, res, next) => {
+      try {
+        if (!req.file) {
+          throw new BadRequestError('Upload a PNG, JPEG or WebP under 3 MB', 'CARD_INVALID');
+        }
+
+        const request = await design.deliverArtwork(
+          req.params.requestId!,
+          { buffer: req.file.buffer, mimetype: req.file.mimetype },
+          req.user!.id,
+        );
+
+        res.json({ request });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // ── Orders ─────────────────────────────────────────────────────────────────
   router.get('/orders', validate(adminListQuerySchema, 'query'), async (req, res, next) => {

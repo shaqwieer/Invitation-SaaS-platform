@@ -1,5 +1,5 @@
 import type { Event } from '@prisma/client';
-import { seatsFor, type AttendanceReport } from '@da3wa/shared';
+import { guestExportName, seatsFor, type AttendanceReport } from '@da3wa/shared';
 import { prisma } from '../../lib/prisma.js';
 
 /** Half-hour buckets, matching the design's «توزيع الوصول بالساعة» axis. */
@@ -77,7 +77,14 @@ export async function attendanceReport(event: Event): Promise<AttendanceReport> 
     groups.set(key, bucket);
 
     if (arrived === 0) {
-      noShows.push({ guestId: guest.id, name: guest.name, seats: promised, group: guest.group });
+      // The host reads this list to work out who to call. A slot nobody claimed
+      // is shown as blank rather than «ضيفنا الكريم» — there is no one to call.
+      noShows.push({
+        guestId: guest.id,
+        name: guestExportName(guest.name),
+        seats: promised,
+        group: guest.group,
+      });
     }
   }
 

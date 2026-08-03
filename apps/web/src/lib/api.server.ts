@@ -1,6 +1,6 @@
 import 'server-only';
 import { headers } from 'next/headers';
-import type { PublicBranding, PublicInvitation } from '@da3wa/shared';
+import type { PublicBatch, PublicBranding, PublicInvitation } from '@da3wa/shared';
 import { ApiError } from './api';
 
 /**
@@ -66,6 +66,7 @@ export const FALLBACK_BRANDING: PublicBranding = {
   taglineEn: 'A Saudi platform for digital invitations and event attendance.',
   logoMark: 'د',
   logoUrl: null,
+  customDesignPriceHalalas: 19_900,
 };
 
 export async function fetchBranding(): Promise<PublicBranding> {
@@ -118,6 +119,61 @@ export async function fetchPackages(): Promise<CataloguePackage[]> {
   } catch {
     return [];
   }
+}
+
+export interface CatalogueTemplate {
+  id: string;
+  key: string;
+  nameAr: string;
+  nameEn: string;
+  category: string;
+  previewImageUrl: string | null;
+  priceHalalas: number;
+}
+
+/**
+ * The public template gallery.
+ *
+ * Shares `/api/catalogue` and its five-minute window with `fetchPackages`, so
+ * the landing page and the sample invitation cost one round trip between them
+ * rather than two.
+ */
+export async function fetchTemplates(): Promise<CatalogueTemplate[]> {
+  try {
+    const res = await fetch(`${serverApiBase()}/api/catalogue`, {
+      next: { revalidate: 300 },
+      headers: { accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { templates?: CatalogueTemplate[] };
+    return body.templates ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch a delegate's batch for server rendering.
+ *
+ * `no-store` for the same reason as an invitation, and a stronger one: this
+ * page lists a whole block of named guests and their numbers. Nothing about it
+ * may be reused for a different token.
+ */
+export async function fetchBatch(token: string): Promise<PublicBatch | null> {
+  const res = await fetch(`${serverApiBase()}/api/batch/${encodeURIComponent(token)}`, {
+    cache: 'no-store',
+    headers: forwardedClientHeaders(),
+  });
+
+  if (res.status === 404 || res.status === 422) return null;
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
+    throw new ApiError(res.status, body?.error?.code ?? 'UNKNOWN', 'Failed to load batch');
+  }
+
+  const body = (await res.json()) as { batch: PublicBatch };
+  return body.batch;
 }
 
 /**

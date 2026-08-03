@@ -35,6 +35,7 @@ export function toPublicBranding(settings: {
   logoMark: string;
   logoMime: string | null;
   logoVersion: number;
+  customDesignPriceHalalas: number;
 }): PublicBranding {
   return {
     brandNameAr: settings.brandNameAr,
@@ -43,6 +44,7 @@ export function toPublicBranding(settings: {
     taglineEn: settings.taglineEn,
     logoMark: settings.logoMark,
     logoUrl: settings.logoMime ? `/api/settings/logo?v=${settings.logoVersion}` : null,
+    customDesignPriceHalalas: settings.customDesignPriceHalalas,
   };
 }
 

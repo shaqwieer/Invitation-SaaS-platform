@@ -249,6 +249,9 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
 | 4     | Scanner + check-in               | ✅ Complete |
 | 5     | Dashboard + exports              | ✅ Complete |
 | 6     | Payments + admin panel           | ✅ Complete |
+| 7     | Host workspace, card editor, platform settings | ✅ Complete |
+| 8     | Three design routes, custom-design queue, sample invitation | ✅ Complete |
+| 9     | Delegated invitation blocks («ضيوف أم العروس») | ✅ Complete |
 
 ### Known gaps
 
@@ -259,6 +262,12 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
   is online-only, with a real connectivity indicator.
 - **Only the stub payment provider is wired.** A real gateway is one class implementing
   `PaymentProvider` — see `apps/api/src/services/payment/index.ts`.
+- **Bulk WhatsApp sending is still one tap per guest.** Sending one pre-filled message to
+  thirty numbers in a single action is not possible over `wa.me`, and doing it properly means
+  the WhatsApp Cloud API — a Meta Business account, verification, approved templates, a
+  per-message fee, and messages that arrive from a platform number rather than the host's.
+  That trade was declined; the queue's progress tracking is the answer for now. The provider
+  abstraction to add it later would mirror `SMS_PROVIDER` / `PAYMENT_PROVIDER`.
 
 ### Decisions worth knowing
 
@@ -287,7 +296,24 @@ docker exec da3wa-postgres pg_dump -U da3wa da3wa | gzip > backup-$(date +%F).sq
   abort the whole statement on the first collision and produce no per-row report.
 - **We never send a WhatsApp message.** The API builds a `wa.me` deep link and the host taps
   it, so the invitation leaves the host's own number — the product's central promise, and the
-  reason the _click_ (not a delivery receipt) is what marks an invitation `SENT`.
+  reason the _click_ (not a delivery receipt) is what marks an invitation `SENT`. It is also
+  why there is no "send to all thirty at once": one `wa.me` link opens one chat, and real
+  bulk delivery would need the WhatsApp Cloud API — a platform number, business verification
+  and pre-approved templates, i.e. messages that no longer come from the host. What the
+  batch screens do instead is keep the host's place: `SendQueue` counts the links opened,
+  names who is next, and marks each row as it goes. It says فُتحت, not أُرسلت, because a tap
+  on the link is genuinely the last thing we can observe.
+- **The card's artwork sits above its message, not behind it.** Hosts pay a designer for a
+  composition — often the whole invitation already set in type — and the old layout cropped
+  it to a text panel's aspect and dimmed it under a scrim to keep the guest's name legible.
+  The image is now shown whole (`object-contain`, its own aspect, capped at 52vh so the RSVP
+  buttons stay above the fold) with the message reading underneath it on paper.
+- **The design choice is stored, not inferred.** `templateId`, `cardImageData` and
+  `customCardUrl` can all hold a value at once. A precedence rule used to decide between
+  them, which meant a host who uploaded a file to "see how it looks" had silently switched
+  their guests off the template with nothing on screen saying so. `cardDesignMode` records
+  what they actually chose; uploaded bytes still win *within* a mode, because there they are
+  the operator's tailored version of that exact choice.
 - **The QR carries a signed reference, never guest data.** Payload is
   `1.<eventId>.<invitationId>.<issuedAt>.<hmac>`. A photographed code reveals no name, phone,
   or invite URL, and `eventId` sits inside the signed region so a code cannot be moved
@@ -323,6 +349,11 @@ All `/api/events/**` routes require a bearer token and are scoped to the caller'
 | `POST`                 | `/api/events/:eventId/guests/:guestId/send`               | Builds the wa.me link, marks `SENT`      |
 | `GET`                  | `/api/events/:eventId/guests/:guestId/link`               | Preview; marks nothing                   |
 | `POST`                 | `/api/events/:eventId/guests/bulk-send`                   | A selection, or everyone unsent          |
+| `GET` `POST`           | `/api/events/:eventId/design-request`                     | The two open design jobs / open a custom one |
+| `POST`                 | `/api/events/:eventId/design-request/:id/cancel`          | Before the operator has delivered        |
+| `POST` `DELETE`        | `/api/events/:eventId/card`                               | multipart `file`; the host's own artwork |
+| `GET` `POST`           | `/api/events/:eventId/batches`                            | Delegated invitation blocks              |
+| `POST` `DELETE`        | `/api/events/:eventId/batches/:batchId`                   | `/sent` stamps the handover; delete keeps claimed guests |
 
 Public — no authentication. The token is the only credential a guest holds, so every route
 here is rate limited: 60 bits of entropy is unguessable only if guessing is bounded.
@@ -333,10 +364,54 @@ here is rate limited: 60 bits of entropy is unguessable only if guessing is boun
 | `POST` | `/api/invite/:token/respond` | Atomic `attending` + `companions` |
 | `GET`  | `/api/invite/:token/qr`      | Signed payload + seat count       |
 | `GET`  | `/api/invite/:token/qr.png`  | Downloadable PNG                  |
+| `GET`  | `/api/invite/demo/qr.png`    | The sample invitation's QR — signs nothing |
 
 The guest-facing page is server-rendered at `/invite/<token>` — deliberately outside the
 `/[locale]` prefix, because a guest opens a bare link straight from WhatsApp with no locale
 to carry. `?lang=en` switches to the LTR mirror.
+
+Delegated distribution is the second token-only surface, and the same reasoning applies to
+every line of it:
+
+| Method  | Path                                    | Notes                                  |
+| ------- | --------------------------------------- | -------------------------------------- |
+| `GET`   | `/api/batch/:token`                     | That batch's slots, and no other guest |
+| `PATCH` | `/api/batch/:token/slots/:guestId`      | Name and number, fill-only             |
+| `POST`  | `/api/batch/:token/slots/:guestId/sent` | Marks `SENT`; enforces the package cap |
+
+### Delegated invitations
+
+The case, in the host's words: أم العريس cannot invite أم العروس's guests, because she does
+not have their numbers — but أم العروس does. So the host mints a block of invitations and
+sends **one** message carrying `/batch/<token>`; the delegate opens it and forwards each
+invitation from her own phone.
+
+What is delegated is the sending, not the event. Every slot is an ordinary `Guest` with its
+own `Invitation`, its own link and its own QR at the door — fifty slots are fifty barcodes,
+not one shared card. Nothing about RSVP, check-in or the report changes.
+
+That required `Guest.name` and `Guest.phone` to become nullable, which is the interesting
+part of the change:
+
+- **The name is optional twice over.** The delegate types it if she has it; if she leaves it
+  blank the *guest* is asked at RSVP, and `respond()` writes it in the same atomic write.
+  Fill-only in both directions — a name, once given, cannot be overwritten by a second holder
+  of a forwarded link, because the door greets people by it.
+- **Nothing nameless renders blank.** `guestDisplayName()` is the single fallback
+  («ضيفنا الكريم»), and `guestExportName()` is the deliberate exception: a spreadsheet shows
+  an unclaimed row as empty, because the host reading it is counting people.
+- **Phoneless slots never reach a link builder.** `prepareBatchSend` filters them at the
+  query, so «أرسلها الآن» cannot fill with `wa.me/undefined` — a link the host taps once and
+  never diagnoses. The dashboard's unsent tile splits the same way (`pendingSend`): it counts
+  delegated slots but does not offer to send them, because they wait on someone else.
+- **Deleting a batch does not delete people.** Only untouched slots go; anyone named,
+  numbered or sent to keeps their row and loses only the batch link.
+
+The delegate page never *opens* an invitation — `GET /api/invite/:token` marks a guest
+`OPENED`, so a delegate checking her links would report fifty guests as having read
+invitations nobody had received yet. She shares or copies the message instead, through the
+native share sheet where the browser has one: she holds her guests as contacts, not as digits
+she would type fifty times.
 
 The door — authenticated by a scanner session (`X-Scan-Session`), never a user account.
 The event is taken from the session row, so there is no request shape in which a door can
@@ -374,13 +449,23 @@ Dashboard, report and exports — host-authenticated, scoped to their own events
 
 ### Web routes
 
-| Path                               | Who                                     |
-| ---------------------------------- | --------------------------------------- |
-| `/<locale>/login`                  | Host                                    |
-| `/<locale>/dashboard`              | Host — polls every 30s and on tab focus |
-| `/<locale>/events/:eventId/report` | Host                                    |
-| `/invite/<token>`                  | Guest — no account, no locale prefix    |
-| `/scan/<eventId>`                  | Door staff — event password, no account |
+| Path                               | Who                                                      |
+| ---------------------------------- | -------------------------------------------------------- |
+| `/<locale>/login`                  | Host                                                     |
+| `/<locale>/dashboard`              | Host — polls every 30s and on tab focus                  |
+| `/<locale>/events/:eventId/card`   | Host — the three design routes                           |
+| `/<locale>/events/:eventId/report` | Host                                                     |
+| `/<locale>/demo`                   | Anyone — the sample invitation, on the real invite screen |
+| `/invite/<token>`                  | Guest — no account, no locale prefix                     |
+| `/batch/<token>`                   | A delegate distributing a block — no account             |
+| `/scan/<eventId>`                  | Door staff — event password, no account                  |
+
+`/<locale>/demo` renders `InviteScreen` itself rather than a mock, so what a prospect judges
+the product by cannot drift from what a guest receives. It writes nothing: there is no guest
+and no event behind it, and answering moves local state only. The landing page's
+«شاهد نموذج دعوة» points at it, and the form beside that button opens WhatsApp with the
+sample link addressed to the visitor's own number — the same `wa.me` mechanism the product
+uses for real invitations, so the demo demonstrates the actual delivery model.
 
 ### A note on the numbers
 
@@ -405,15 +490,46 @@ Orders and payments — host-authenticated:
 
 Admin — `ADMIN` role only:
 
-| Method        | Path                                           |
-| ------------- | ---------------------------------------------- |
-| `GET`         | `/api/admin/stats`                             |
-| `GET` `PATCH` | `/api/admin/users` · `/users/:userId`          |
-| `GET` `PATCH` | `/api/admin/events` · `/events/:eventId`       |
-| `GET` `PUT`   | `/api/admin/packages` · `/api/admin/templates` |
-| `GET`         | `/api/admin/orders`                            |
+| Method          | Path                                              | Notes                                  |
+| --------------- | ------------------------------------------------- | -------------------------------------- |
+| `GET`           | `/api/admin/stats`                                |                                        |
+| `GET` `PATCH`   | `/api/admin/users` · `/users/:userId`             |                                        |
+| `GET` `PATCH`   | `/api/admin/events` · `/events/:eventId`          |                                        |
+| `GET` `PUT`     | `/api/admin/packages` · `/api/admin/templates`    |                                        |
+| `POST` `DELETE` | `/api/admin/templates/:templateId/preview`        | multipart `file`; the gallery artwork  |
+| `GET` `PATCH`   | `/api/admin/design-requests` · `/:requestId`      | The design queue; status, price, reply |
+| `POST`          | `/api/admin/design-requests/:requestId/artwork`   | Deliver the finished file              |
+| `GET`           | `/api/admin/orders`                               |                                        |
+| `GET` `PUT`     | `/api/admin/settings` · `/settings/logo`          | Branding, and the custom-design price  |
 
 Web: `/<locale>/checkout/:orderId` and `/<locale>/admin`.
+
+### The three routes to a card
+
+The design step asks one question — «كيف تبغى بطاقتك؟» — and stores the answer as
+`Event.cardDesignMode`, rather than leaving a precedence rule to decide between whichever
+fields happen to be populated:
+
+| Mode             | What the host does                     | What the operator does                          |
+| ---------------- | -------------------------------------- | ----------------------------------------------- |
+| `TEMPLATE`       | Picks from the gallery                 | Tailors it to the event and uploads the result  |
+| `CUSTOM_REQUEST` | Writes a brief; we call them           | Quotes a price, draws it, uploads it            |
+| `UPLOAD`         | Brings their own file, or pastes a URL | Nothing                                         |
+
+Both operator routes are one queue (`CustomDesignRequest`, `kind` =
+`TEMPLATE_TAILORING | CUSTOM`) and end the same way: the finished file is written into the
+event's existing card slot, so `GET /api/events/:id/card` and `resolveArtwork` need no second
+storage path. Only `CUSTOM` carries a price; it is quoted per job — «بسعر خاص» — and becomes
+an order line item at checkout, stamped `billedAt` inside the same transaction that marks the
+order `PAID` so a retried webhook or a later upgrade order cannot charge for it twice.
+
+The advertised "from" figure lives in `PlatformSettings.customDesignPriceHalalas`, so
+changing it is an admin action rather than a deploy.
+
+Template gallery artwork is uploaded, not linked: «ارفقها في الموقع» has to mean a file, and
+a URL-only column would leave the gallery empty until the operator found somewhere to host
+each design. Bytes live on the row like the platform logo, served by
+`GET /api/templates/:id/preview`.
 
 ### Payments
 

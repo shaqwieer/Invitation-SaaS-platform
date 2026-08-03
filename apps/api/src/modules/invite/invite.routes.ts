@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { inviteTokenParamSchema, respondSchema, type RespondInput } from '@da3wa/shared';
 import { validate } from '../../middleware/validate.js';
+import { env } from '../../config/env.js';
 import { renderQrPng } from '../../lib/qr.js';
 import type { RateLimiters } from '../../middleware/rateLimit.js';
 import * as invite from './invite.service.js';
@@ -15,6 +16,30 @@ import * as invite from './invite.service.js';
  */
 export function createInviteRouter(limiters: RateLimiters): Router {
   const router = Router();
+
+  /**
+   * The QR on the landing page's sample invitation.
+   *
+   * Registered before `/:token/qr.png` so "demo" is never read as a token — the
+   * token schema would reject it anyway, and the sample would show a broken
+   * image at the one moment a prospect is deciding.
+   *
+   * It signs nothing. The payload is the sample page's own URL, so a curious
+   * scan opens the sample rather than presenting an unverifiable code at a real
+   * door, and no HMAC of ours is handed out to be studied.
+   */
+  router.get('/demo/qr.png', limiters.inviteLookup, async (_req, res, next) => {
+    try {
+      const png = await renderQrPng(`${env().PUBLIC_WEB_URL.replace(/\/+$/, '')}/ar/demo`);
+
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Content-Disposition', 'inline; filename="da3wa-demo.png"');
+      res.send(png);
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get(
     '/:token',

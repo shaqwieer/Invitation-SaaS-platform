@@ -50,6 +50,16 @@ export interface DashboardSummary {
   /** Guests contacted but silent — the number the reminder nudge acts on. */
   awaitingReply: { count: number; oldestSentDaysAgo: number | null };
 
+  /**
+   * `NOT_SENT` split by who can actually send it.
+   *
+   * Delegated slots sit in NOT_SENT like any other unsent invitation, but they
+   * have no number — they are waiting on the person distributing them, not on
+   * the host. Without the split, «أرسلها الآن» offers to send fifty invitations
+   * and then prepares none of them.
+   */
+  pendingSend: { sendable: number; delegated: number };
+
   activity: ActivityEntry[];
 
   /** Stamped server-side so the UI can show «آخر تحديث قبل دقيقتين» honestly. */

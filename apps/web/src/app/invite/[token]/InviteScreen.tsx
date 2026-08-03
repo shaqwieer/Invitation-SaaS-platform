@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { PublicInvitation } from '@da3wa/shared';
+import { guestDisplayName, type PublicInvitation } from '@da3wa/shared';
 import { apiUrl, browserApiBase } from '@/lib/api';
 import { direction, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber, formatEventDate, mapsUrl } from '@/lib/format';
@@ -19,10 +19,20 @@ export function InviteScreen({
   invitation,
   locale,
   token,
+  demo = false,
 }: {
   invitation: PublicInvitation;
   locale: AppLocale;
   token: string;
+  /**
+   * Sample mode for the landing page's «شاهد نموذج دعوة».
+   *
+   * The same component, so what a prospect is shown is literally the guest
+   * screen rather than a mock that drifts from it — but nothing is written:
+   * there is no guest and no event behind this invitation, and answering only
+   * moves local state.
+   */
+  demo?: boolean;
 }) {
   const [state, setState] = useState(invitation);
   const [qrToken, setQrToken] = useState<string | null>(null);
@@ -36,6 +46,16 @@ export function InviteScreen({
   const dir = direction(locale);
 
   const [companions, setCompanions] = useState(guest.companionsConfirmed);
+  /**
+   * Who is answering, on an invitation that never said.
+   *
+   * A delegated slot («ضيوف أم العروس») may reach its guest unnamed, because the
+   * person distributing it was forwarding fifty links and not filling in fifty
+   * forms. Asking here is the last chance to get a name onto the door list —
+   * and it is the guest's own, which is better than a guess.
+   */
+  const [name, setName] = useState('');
+  const needsName = guest.name === null;
   const date = formatEventDate(event.startsAt, event.timezone, locale);
   const hosts = [event.hostName, event.partnerName]
     .filter(Boolean)
@@ -48,11 +68,31 @@ export function InviteScreen({
     setPending(true);
     setError(null);
 
+    if (demo) {
+      setState((prev) => ({
+        ...prev,
+        guest: {
+          ...prev.guest,
+          status: attending ? 'CONFIRMED' : 'DECLINED',
+          companionsConfirmed: attending ? companions : 0,
+        },
+      }));
+      setEditing(false);
+      setPending(false);
+      return;
+    }
+
     try {
       const res = await fetch(`${browserApiBase()}/api/invite/${token}/respond`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ attending, companions: attending ? companions : 0 }),
+        body: JSON.stringify({
+          attending,
+          companions: attending ? companions : 0,
+          // Only ever sent for a slot that has no name; the server ignores it
+          // otherwise, so a forwarded link cannot rename its owner.
+          ...(needsName && name.trim() ? { name: name.trim() } : {}),
+        }),
       });
 
       const body = await res.json();
@@ -79,11 +119,22 @@ export function InviteScreen({
 
   return (
     <main dir={dir} lang={locale} className="flex min-h-screen flex-col bg-[#FAF8F3]">
+      {demo && (
+        <a
+          href={`/${locale}`}
+          className="block bg-gold px-4 py-2 text-center text-[12.5px] font-medium text-[#2A1F08]"
+        >
+          {t('demo.banner')}
+        </a>
+      )}
+
       <header className="flex items-center justify-between border-b border-[#E2DFD6] bg-line-soft px-4 py-2.5">
         <span className="w-6" />
         <div className="flex flex-col items-center gap-0.5">
           <span className="font-latin text-[12.5px] font-medium text-[#3D4741]">da3wa.sa</span>
-          <span className="text-[10.5px] text-[#9AA49E]">{t('invite.personalInvitation')}</span>
+          <span className="text-[10.5px] text-[#9AA49E]">
+            {demo ? t('demo.subtitle') : t('invite.personalInvitation')}
+          </span>
         </div>
         <a
           href={`?lang=${locale === 'ar' ? 'en' : 'ar'}`}
@@ -97,7 +148,7 @@ export function InviteScreen({
         <ConfirmedState
           state={state}
           qrToken={qrToken}
-          token={token}
+          qrSrc={`${browserApiBase()}/api/invite/${demo ? 'demo' : token}/qr.png`}
           locale={locale}
           date={date}
           maps={maps}
@@ -112,7 +163,7 @@ export function InviteScreen({
               locale={locale}
               hosts={hosts}
               title={event.title}
-              guestName={guest.name}
+              guestName={guestDisplayName(guest.name, locale)}
               cardColor={event.cardColor}
               cardTitleFont={event.cardTitleFont}
               // Server-resolved: upload → pasted URL → template preview.
@@ -160,6 +211,30 @@ export function InviteScreen({
                 </Row>
               )}
             </section>
+
+            {/* Above the companion picker, because it is the first thing to
+                establish: who is this. The invitation reached them without a
+                name because whoever forwarded it was sending fifty, not
+                filling in fifty forms. */}
+            {showForm && needsName && (
+              <section className="flex flex-col gap-2 rounded-[18px] border border-line-soft bg-surface p-3.5">
+                <label htmlFor="guest-name" className="text-[15px] font-medium">
+                  {t('invite.yourName')}
+                </label>
+                <input
+                  id="guest-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  maxLength={120}
+                  placeholder={t('invite.yourNamePlaceholder')}
+                  className="rounded-[14px] border-[1.5px] border-line-strong bg-surface px-4 py-3 text-[15px] outline-none focus:border-emerald-700"
+                />
+                <span className="text-[12.5px] leading-relaxed text-ink-faint">
+                  {t('invite.yourNameHint')}
+                </span>
+              </section>
+            )}
 
             {showForm && guest.companionsAllowed > 0 && (
               <section className="flex flex-col gap-2.5 rounded-[18px] border border-line-soft bg-surface p-3.5">
@@ -275,9 +350,16 @@ function Row({
  * font, a template and upload a design, see all three in the editor's preview,
  * and have the guest receive none of them.
  *
- * With artwork the text sits on a dark scrim rather than directly on the image:
- * an uploaded photograph has no contrast contract with us, and the guest's own
- * name has to stay legible on top of it.
+ * The artwork is a picture *above* the words, not a backdrop behind them. Hosts
+ * pay a designer for a composition — names, dates, ornament, often the whole
+ * invitation already set in type — and cropping it to a text panel's aspect and
+ * dimming it under a scrim destroyed exactly what they bought. So it is shown
+ * whole (`object-contain`, its own aspect) and the message reads underneath it
+ * on paper, where it needs no scrim to stay legible.
+ *
+ * The height cap matters: a tall portrait design that fills the viewport would
+ * push the message and the RSVP buttons below a fold that is barely visible
+ * inside WhatsApp's in-app browser.
  */
 function InvitationCard({
   locale,
@@ -300,45 +382,36 @@ function InvitationCard({
   // Amiri is reserved for the occasion's name — never for UI chrome.
   const titleFont = cardTitleFont === 'plex-arabic' ? 'font-sans' : 'font-serif';
 
-  if (artworkUrl) {
-    return (
-      <section className="relative flex flex-none flex-col items-center justify-end gap-2.5 overflow-hidden rounded-[22px] border border-[#EDE8DA] px-5 py-5 text-center shadow-[0_14px_34px_-26px_rgba(23,33,29,.7)]">
-        {/* eslint-disable-next-line @next/next/no-img-element -- host-supplied
-            artwork, either from our own API or a URL they pasted. */}
-        <img src={artworkUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/35 to-black/15" />
+  return (
+    <section className="flex flex-none flex-col overflow-hidden rounded-[22px] border border-[#EDE8DA] bg-surface shadow-[0_14px_34px_-26px_rgba(23,33,29,.7)]">
+      {artworkUrl && (
+        <div className="flex justify-center" style={{ backgroundColor: cardColor }}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- host-supplied
+              artwork, either from our own API or a URL they pasted. */}
+          <img
+            src={artworkUrl}
+            alt=""
+            className="max-h-[52vh] w-full object-contain"
+          />
+        </div>
+      )}
 
-        <span className="relative text-[11px] text-white/70">{t('invite.bismillah')}</span>
-        <span className="relative text-[13px] leading-loose text-white/85">
+      <div className="flex flex-col items-center gap-2.5 px-5 py-3.5">
+        <span className="text-[11.5px] text-ink-faint">{t('invite.bismillah')}</span>
+        <div className="h-px w-12 bg-[#D9CFAE]" />
+        <span className="text-center text-[13.5px] leading-loose text-ink-muted">
           {t('invite.hostsInvite', { hosts })}
         </span>
-        <span className={`relative ${titleFont} text-[30px] leading-tight text-[#FFFDF7]`}>
+        <span
+          className={`text-center ${titleFont} text-[32px] leading-tight`}
+          style={{ color: cardColor }}
+        >
           {title}
         </span>
-        <div className="relative mt-1 flex w-full flex-col items-center gap-1 border-t border-dashed border-white/30 pt-2.5">
-          <span className="text-xs text-white/65">{t('invite.personalFor')}</span>
-          <span className="text-[19px] font-semibold leading-snug text-[#FFFDF7]">{guestName}</span>
+        <div className="flex w-full flex-col items-center gap-1.5 border-t border-dashed border-[#E6E2D6] pt-2.5">
+          <span className="text-xs text-ink-faint">{t('invite.personalFor')}</span>
+          <span className="text-[19px] font-semibold leading-snug">{guestName}</span>
         </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="flex flex-none flex-col items-center gap-2.5 rounded-[22px] border border-[#EDE8DA] bg-surface px-5 py-3.5 shadow-[0_14px_34px_-26px_rgba(23,33,29,.7)]">
-      <span className="text-[11.5px] text-ink-faint">{t('invite.bismillah')}</span>
-      <div className="h-px w-12 bg-[#D9CFAE]" />
-      <span className="text-center text-[13.5px] leading-loose text-ink-muted">
-        {t('invite.hostsInvite', { hosts })}
-      </span>
-      <span
-        className={`text-center ${titleFont} text-[32px] leading-tight`}
-        style={{ color: cardColor }}
-      >
-        {title}
-      </span>
-      <div className="flex w-full flex-col items-center gap-1.5 border-t border-dashed border-[#E6E2D6] pt-2.5">
-        <span className="text-xs text-ink-faint">{t('invite.personalFor')}</span>
-        <span className="text-[19px] font-semibold leading-snug">{guestName}</span>
       </div>
     </section>
   );
@@ -347,7 +420,7 @@ function InvitationCard({
 function ConfirmedState({
   state,
   qrToken,
-  token,
+  qrSrc,
   locale,
   date,
   maps,
@@ -355,7 +428,8 @@ function ConfirmedState({
 }: {
   state: PublicInvitation;
   qrToken: string | null;
-  token: string;
+  /** Already resolved by the caller — the sample invitation has its own. */
+  qrSrc: string;
   locale: AppLocale;
   date: ReturnType<typeof formatEventDate>;
   maps: string | null;
@@ -394,7 +468,7 @@ function ConfirmedState({
           {/* Rendered by the API so the signed payload never has to be assembled
               in the browser. */}
           <img
-            src={`${browserApiBase()}/api/invite/${token}/qr.png`}
+            src={qrSrc}
             alt=""
             width={186}
             height={186}
@@ -402,7 +476,7 @@ function ConfirmedState({
           />
 
           <div className="flex flex-col items-center gap-1">
-            <span className="text-base font-semibold">{guest.name}</span>
+            <span className="text-base font-semibold">{guestDisplayName(guest.name, locale)}</span>
             <span className="text-xs text-ink-light">
               {t('invite.seatsAndCode', {
                 seats: displayNumber(seats, locale),
@@ -415,7 +489,7 @@ function ConfirmedState({
 
         <div className="flex w-full gap-2.5">
           <a
-            href={`${browserApiBase()}/api/invite/${token}/qr.png`}
+            href={qrSrc}
             download
             className="flex h-[50px] flex-1 items-center justify-center rounded-[13px] border border-[#CFD6D0] bg-surface text-[14.5px] font-medium"
           >

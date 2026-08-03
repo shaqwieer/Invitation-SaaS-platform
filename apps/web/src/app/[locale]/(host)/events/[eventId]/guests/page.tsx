@@ -13,7 +13,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { GUEST_STATUSES, type GuestStatus, type GuestStatusCounts } from '@da3wa/shared';
+import {
+  GUEST_STATUSES,
+  guestDisplayName,
+  type GuestStatus,
+  type GuestStatusCounts,
+} from '@da3wa/shared';
 import { useAuth } from '@/lib/auth';
 import { useEvents } from '@/components/EventContext';
 import { browserApiBase } from '@/lib/api';
@@ -39,15 +44,18 @@ import {
   Toast,
   type ToastMessage,
 } from '@/components/ui';
+import { SendQueue } from '@/components/SendQueue';
+import { GuestBatches } from '@/components/GuestBatches';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber, formatEventDate } from '@/lib/format';
 
 const PAGE_SIZE = 25;
 
+/** Name and phone are null on a delegated slot nobody has claimed yet. */
 interface GuestRow {
   id: string;
-  name: string;
-  phone: string;
+  name: string | null;
+  phone: string | null;
   group: string | null;
   section: 'MEN' | 'WOMEN' | null;
   companionsAllowed: number;
@@ -285,10 +293,17 @@ export default function GuestsPage() {
       setSelected(new Set());
       await load();
       setBulkLinks(body.links ?? []);
+
+      // Ticking a delegated slot is easy to do by accident — it is a row in the
+      // same table. Getting three links back for five ticks needs a sentence,
+      // not silence.
+      if (body.skipped > 0) {
+        setToast({ tone: 'error', text: t('guests.skippedUnclaimed', { count: n(body.skipped) }) });
+      }
     } finally {
       setBusy(false);
     }
-  }, [authFetch, eventId, load, locale, selected, t]);
+  }, [authFetch, eventId, load, locale, selected, t, n]);
 
   const changeStatus = useCallback(
     async (next: GuestStatus) => {
@@ -355,6 +370,14 @@ export default function GuestsPage() {
             </Button>
           </>
         }
+      />
+
+      <GuestBatches
+        eventId={eventId}
+        locale={locale}
+        t={t}
+        onToast={setToast}
+        onGuestsChanged={load}
       />
 
       <Card className="flex flex-col">
@@ -496,7 +519,7 @@ export default function GuestsPage() {
                     <Td>
                       <Checkbox
                         checked={selected.has(row.id)}
-                        aria-label={row.name}
+                        aria-label={guestDisplayName(row.name, locale)}
                         onChange={(e) =>
                           setSelected((prev) => {
                             const next = new Set(prev);
@@ -506,9 +529,15 @@ export default function GuestsPage() {
                         }
                       />
                     </Td>
+                    {/* A delegated slot has neither name nor number until
+                        somebody claims it. Shown as what it is — «دعوة موزَّعة» —
+                        rather than as two blank cells the host would read as
+                        corrupted data. */}
                     <Td>
                       <div className="flex flex-col">
-                        <span className="font-medium">{row.name}</span>
+                        <span className={`font-medium ${row.name ? '' : 'text-ink-faint'}`}>
+                          {row.name ?? t('guests.unclaimed')}
+                        </span>
                         {row.group && (
                           <span className="text-[12.5px] text-ink-light">{row.group}</span>
                         )}
@@ -516,7 +545,7 @@ export default function GuestsPage() {
                     </Td>
                     <Td>
                       <span dir="ltr" className="font-latin text-[13.5px] text-ink-muted">
-                        {row.phone}
+                        {row.phone ?? '—'}
                       </span>
                     </Td>
                     <Td className="ltr-nums">
@@ -606,7 +635,9 @@ export default function GuestsPage() {
           title={
             confirmDelete === 'bulk'
               ? t('guests.deleteManyTitle', { count: n(selected.size) })
-              : t('guests.deleteTitle', { name: confirmDelete.name })
+              : t('guests.deleteTitle', {
+                  name: guestDisplayName(confirmDelete.name, locale),
+                })
           }
           onClose={() => setConfirmDelete(null)}
           footer={
@@ -626,7 +657,7 @@ export default function GuestsPage() {
 
       {link && (
         <Modal
-          title={t('guests.linkTitle', { name: link.guest.name })}
+          title={t('guests.linkTitle', { name: guestDisplayName(link.guest.name, locale) })}
           description={t('guests.linkBody')}
           onClose={() => setLink(null)}
           footer={
@@ -671,25 +702,7 @@ export default function GuestsPage() {
             </Button>
           }
         >
-          <div className="flex flex-col">
-            {bulkLinks.map((entry) => (
-              <div
-                key={entry.guestId}
-                className="flex items-center justify-between gap-3 border-b border-[#F2F0EA] py-3 last:border-0"
-              >
-                <span className="text-[14.5px]">{entry.guestName}</span>
-                <LinkButton
-                  size="sm"
-                  variant="primary"
-                  href={entry.whatsappUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                >
-                  {t('dash.sendOne')}
-                </LinkButton>
-              </div>
-            ))}
-          </div>
+          <SendQueue links={bulkLinks} locale={locale} t={t} />
         </Modal>
       )}
 
@@ -718,8 +731,10 @@ function GuestModal({
   const [draft, setDraft] = useState<GuestDraft>(
     guest
       ? {
-          name: guest.name,
-          phone: guest.phone,
+          // Editing an unclaimed slot starts from blank fields, and saving
+          // fills them in — the same form the host uses for any other guest.
+          name: guest.name ?? '',
+          phone: guest.phone ?? '',
           group: guest.group ?? '',
           section: guest.section ?? '',
           companionsAllowed: guest.companionsAllowed,

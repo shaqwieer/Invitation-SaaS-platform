@@ -35,6 +35,8 @@ export interface HostEvent {
   venueLat: number | null;
   venueLng: number | null;
   venueMapUrl: string | null;
+  /** Which of the three design routes the host chose. */
+  cardDesignMode: 'TEMPLATE' | 'CUSTOM_REQUEST' | 'UPLOAD';
   templateId: string | null;
   packageId: string | null;
   cardColor: string;

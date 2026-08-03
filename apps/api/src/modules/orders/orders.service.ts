@@ -14,9 +14,19 @@ import { env } from '../../config/env.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
 import { paymentProvider } from '../../services/payment/index.js';
 import { notifyNewOrder } from '../../services/notifications/index.js';
+import { pendingCharge as pendingDesignCharge } from '../design/design.service.js';
 
 /** VAT as basis points, so the stored rate is an integer like every amount. */
 const VAT_RATE_BPS = Math.round(0.15 * 10_000);
+
+/**
+ * Line-item key prefix for a custom design charge.
+ *
+ * The request id is appended, which is what lets settlement find the row to
+ * stamp as billed — the frozen line item is the only link between a paid order
+ * and the design job it paid for.
+ */
+const CUSTOM_DESIGN_LINE_KEY = 'custom-design';
 
 function toView(
   order: Order & {
@@ -63,6 +73,26 @@ export const ORDER_INCLUDE = {
  * Two hosts checking out in the same instant still compute the same number, so
  * the caller retries on the unique constraint rather than trusting this alone.
  */
+/**
+ * Recover the design request id from an order's frozen line items.
+ *
+ * Reading the key back is what makes billing idempotent without a second
+ * column on Order: the line item is written once, at checkout, and settlement
+ * — which a gateway may deliver more than once — derives everything from it.
+ */
+function customDesignRequestId(lineItems: unknown): string | null {
+  if (!Array.isArray(lineItems)) return null;
+
+  for (const item of lineItems as Array<{ key?: unknown }>) {
+    if (typeof item?.key !== 'string') continue;
+    if (item.key.startsWith(`${CUSTOM_DESIGN_LINE_KEY}:`)) {
+      return item.key.slice(CUSTOM_DESIGN_LINE_KEY.length + 1) || null;
+    }
+  }
+
+  return null;
+}
+
 async function nextOrderNumber(): Promise<string> {
   const year = new Date().getFullYear();
 
@@ -109,6 +139,20 @@ export async function createOrder(
     throw new BadRequestError('Unknown add-on', 'ADDON_NOT_FOUND');
   }
 
+  /*
+   * The custom design, at the price the operator quoted for this job.
+   *
+   * Read from the request row rather than the catalogue, because «بسعر خاص» is
+   * the point — the figure was agreed on a phone call about one wedding, and no
+   * catalogue entry can hold it. It is still the *server* that supplies the
+   * amount: like everything else here, the client says what is being bought and
+   * never what it costs.
+   *
+   * Skipped once billed, so an upgrade order later in the same event does not
+   * charge for the design a second time.
+   */
+  const designCharge = await pendingDesignCharge(event.id);
+
   const lineItems: OrderLineItem[] = [
     {
       key: `package:${pkg.key}`,
@@ -126,6 +170,17 @@ export async function createOrder(
         unitPrice: addon.priceHalalas,
         quantity: 1,
       })),
+    ...(designCharge?.priceHalalas
+      ? [
+          {
+            key: `${CUSTOM_DESIGN_LINE_KEY}:${designCharge.id}`,
+            labelAr: 'تصميم بطاقة مخصص',
+            labelEn: 'Custom card design',
+            unitPrice: designCharge.priceHalalas,
+            quantity: 1,
+          },
+        ]
+      : []),
   ];
 
   const totals = computeOrderTotals({ lineItems, vatRate: env().VAT_RATE });
@@ -324,6 +379,18 @@ export async function settlePayment(
       await tx.event.update({
         where: { id: order.eventId },
         data: { packageId: order.packageId, status: 'ACTIVE' },
+      });
+    }
+
+    // Mark the design job as paid for, inside the same transaction that marks
+    // the order PAID. Outside it, a crash between the two would leave a design
+    // that has been charged for and is still billable.
+    const designRequestId = customDesignRequestId(order.lineItems);
+    if (designRequestId) {
+      await tx.customDesignRequest.updateMany({
+        // billedAt: null keeps a replayed webhook from moving the timestamp.
+        where: { id: designRequestId, billedAt: null },
+        data: { billedAt: new Date() },
       });
     }
   });

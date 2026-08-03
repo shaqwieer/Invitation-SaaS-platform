@@ -14,6 +14,8 @@ import { validate } from '../../middleware/validate.js';
 import { getGuestQuota } from '../../lib/quota.js';
 import type { RateLimiters } from '../../middleware/rateLimit.js';
 import { createGuestsRouter } from '../guests/guests.routes.js';
+import { createDesignRouter } from '../design/design.routes.js';
+import { createEventBatchRouter } from '../batches/batch.routes.js';
 import { dashboardSummary } from '../dashboard/dashboard.service.js';
 import { attendanceReport } from '../reports/report.service.js';
 import {
@@ -77,6 +79,7 @@ export function createEventsRouter(limiters: RateLimiters): Router {
           req.event!,
           req.body as UpdateEventInput,
           req.user!.id,
+          req.user!.phone,
         );
         res.json({ event });
       } catch (err) {
@@ -268,8 +271,11 @@ export function createEventsRouter(limiters: RateLimiters): Router {
     }
   });
 
-  // Guest and import routes are nested so they inherit the same ownership gate.
+  // Guest, import and design-request routes are nested so they inherit the same
+  // ownership gate.
   router.use('/:eventId/guests', createGuestsRouter(limiters));
+  router.use('/:eventId/design-request', createDesignRouter());
+  router.use('/:eventId/batches', createEventBatchRouter());
 
   return router;
 }

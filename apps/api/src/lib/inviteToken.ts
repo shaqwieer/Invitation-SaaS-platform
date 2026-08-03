@@ -62,4 +62,63 @@ export async function generateDisplayCode(eventId: string): Promise<string> {
   throw new ConflictError('Could not allocate a unique display code', 'CODE_ALLOCATION_FAILED');
 }
 
+/**
+ * Allocate many tokens and codes at once, for minting a block of invitations.
+ *
+ * Calling the single-value generators in a loop is two round trips per slot —
+ * 200 slots means 400 queries just to decide what to name things. This asks the
+ * database twice in total: generate a candidate set, subtract whatever is
+ * already taken, top up if the (vanishingly rare) subtraction left a hole.
+ *
+ * Candidates are de-duplicated within the batch as well as against storage.
+ * Two identical tokens in one `createMany` would fail the whole insert, and two
+ * identical display codes would collide on `@@unique([eventId, displayCode])`.
+ */
+export async function generateInviteIdentifiers(
+  eventId: string,
+  count: number,
+): Promise<Array<{ token: string; displayCode: string }>> {
+  const tokens = new Set<string>();
+  const codes = new Set<string>();
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS && tokens.size < count; attempt++) {
+    while (tokens.size < count) tokens.add(nanoid());
+
+    const taken = await prisma.invitation.findMany({
+      where: { token: { in: [...tokens] } },
+      select: { token: true },
+    });
+    for (const row of taken) tokens.delete(row.token);
+  }
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS && codes.size < count; attempt++) {
+    while (codes.size < count) {
+      const digits = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+      codes.add(`${digits.slice(0, 4)}-${digits.slice(4)}`);
+    }
+
+    const taken = await prisma.invitation.findMany({
+      // Display codes are unique per event, so only this event's are in the way.
+      where: { eventId, displayCode: { in: [...codes] } },
+      select: { displayCode: true },
+    });
+    for (const row of taken) codes.delete(row.displayCode);
+  }
+
+  if (tokens.size < count) {
+    throw new ConflictError('Could not allocate unique invite tokens', 'TOKEN_ALLOCATION_FAILED');
+  }
+  if (codes.size < count) {
+    throw new ConflictError('Could not allocate unique display codes', 'CODE_ALLOCATION_FAILED');
+  }
+
+  const tokenList = [...tokens];
+  const codeList = [...codes];
+
+  return Array.from({ length: count }, (_, index) => ({
+    token: tokenList[index]!,
+    displayCode: codeList[index]!,
+  }));
+}
+
 export const __testing = { TOKEN_ALPHABET, TOKEN_LENGTH };

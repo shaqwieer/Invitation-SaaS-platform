@@ -1,5 +1,6 @@
 import { Prisma, type CheckIn, type Event, type Guest, type ScanUser } from '@prisma/client';
 import {
+  guestDisplayName,
   seatsFor,
   toWesternDigits,
   type CheckInInput,
@@ -48,7 +49,10 @@ function result(
 function summarize(guest: Guest, displayCode: string): ScanGuestSummary {
   return {
     guestId: guest.id,
-    name: guest.name,
+    // Door staff read this off a phone in a dim hall and greet the person in
+    // front of them by it, so a nameless slot has to render as a form of
+    // address rather than as an empty line.
+    name: guestDisplayName(guest.name),
     group: guest.group,
     // The number the door actually needs: the guest plus their companions.
     seats: seatsFor(guest.companionsConfirmed),

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { Event } from '@prisma/client';
-import { seatsFor, type AttendanceReport } from '@da3wa/shared';
+import { guestExportName, seatsFor, type AttendanceReport } from '@da3wa/shared';
 import { prisma } from '../../lib/prisma.js';
 
 const STATUS_AR: Record<string, string> = {
@@ -92,8 +92,10 @@ export async function guestListWorkbook(event: Event): Promise<ExcelJS.Workbook>
   for (const guest of guests) {
     const attending = guest.status === 'CONFIRMED' || guest.status === 'ATTENDED';
     sheet.addRow({
-      name: guest.name,
-      phone: guest.phone,
+      // Blank, not «ضيفنا الكريم»: the host reads this to count people, and an
+      // unclaimed delegated slot should look unclaimed at a glance.
+      name: guestExportName(guest.name),
+      phone: guest.phone ?? '',
       group: guest.group ?? '',
       section: guest.section === 'MEN' ? 'رجال' : guest.section === 'WOMEN' ? 'نساء' : '',
       allowed: guest.companionsAllowed,

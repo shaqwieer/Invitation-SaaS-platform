@@ -3,6 +3,7 @@ import type { Event, Guest, Invitation, Template } from '@prisma/client';
 import {
   canRespond,
   checkCompanions,
+  guestDisplayName,
   seatsFor,
   statusAfterOpen,
   statusForResponse,
@@ -20,15 +21,34 @@ type LoadedInvitation = Invitation & {
 };
 
 /**
- * Which artwork the card is drawn with, in priority order.
+ * Which artwork the card is drawn with.
  *
- * An upload beats a pasted URL beats the chosen template's preview. The order
- * follows effort: a host who uploaded their designer's file meant that file, and
- * a template is the fallback they picked before doing anything specific.
+ * Follows the host's stored choice rather than a precedence rule over whichever
+ * fields happen to be populated. The rule this replaced — upload beats URL beats
+ * template — was invisible: a host on a template who uploaded a file once to see
+ * how it looked had silently switched their guests onto it, with nothing on
+ * screen explaining why the template had stopped appearing.
+ *
+ * Uploaded bytes still win *within* a mode, and for a reason in both cases: on
+ * TEMPLATE they are the operator's hand-tailored version of the chosen design,
+ * and on CUSTOM_REQUEST they are the commissioned artwork itself. A custom
+ * request with nothing delivered yet falls back to the plain coloured card, not
+ * to a template the host never picked.
  */
 function resolveArtwork(event: LoadedInvitation['event']): string | null {
-  if (event.cardImageMime) return `/api/events/${event.id}/card?v=${event.cardImageVersion}`;
-  return event.customCardUrl ?? event.template?.previewImageUrl ?? null;
+  const uploaded = event.cardImageMime
+    ? `/api/events/${event.id}/card?v=${event.cardImageVersion}`
+    : null;
+
+  switch (event.cardDesignMode) {
+    case 'UPLOAD':
+      return uploaded ?? event.customCardUrl ?? null;
+    case 'CUSTOM_REQUEST':
+      return uploaded;
+    case 'TEMPLATE':
+    default:
+      return uploaded ?? event.template?.previewImageUrl ?? null;
+  }
 }
 
 /**
@@ -83,6 +103,7 @@ function toPublic(invitation: LoadedInvitation): PublicInvitation {
       venueMapUrl: event.venueMapUrl,
       cardColor: event.cardColor,
       cardTitleFont: event.cardTitleFont,
+      cardDesignMode: event.cardDesignMode,
       customCardUrl: event.customCardUrl,
       templateKey: event.template?.key ?? null,
       cardArtworkUrl: resolveArtwork(event),
@@ -183,6 +204,15 @@ export async function respond(
   const status = statusForResponse(input.attending);
   const now = new Date();
 
+  /*
+   * A delegated slot learns its guest's name here.
+   *
+   * Only when there isn't one: the link may have been forwarded on, and a
+   * second holder must not be able to rewrite the name the first one gave —
+   * the door greets people by this, and the report counts them by it.
+   */
+  const claimedName = guest.name === null && input.name ? input.name : null;
+
   await prisma.$transaction([
     prisma.rsvpResponse.create({
       data: {
@@ -197,7 +227,11 @@ export async function respond(
     }),
     prisma.guest.update({
       where: { id: guest.id },
-      data: { status, companionsConfirmed: input.companions },
+      data: {
+        status,
+        companionsConfirmed: input.companions,
+        ...(claimedName ? { name: claimedName } : {}),
+      },
     }),
     prisma.invitation.update({
       where: { id: invitation.id },
@@ -228,6 +262,7 @@ export async function respond(
 
   invitation.guest.status = status;
   invitation.guest.companionsConfirmed = input.companions;
+  if (claimedName) invitation.guest.name = claimedName;
   invitation.respondedAt = now;
 
   return {
@@ -263,7 +298,7 @@ export async function qrTokenFor(
       issuedAt: invitation.qrIssuedAt ?? invitation.respondedAt ?? new Date(),
     }),
     seats: seatsFor(invitation.guest.companionsConfirmed),
-    guestName: invitation.guest.name,
+    guestName: guestDisplayName(invitation.guest.name),
     displayCode: invitation.displayCode,
   };
 }

@@ -12,6 +12,14 @@ export const respondSchema = z
   .object({
     attending: z.boolean(),
     companions: z.number().int().min(0).max(20).default(0),
+    /**
+     * Who is answering, when the invitation did not already say.
+     *
+     * Only ever *fills* a blank — the server ignores it for a guest who already
+     * has a name. Otherwise anyone holding a forwarded link could rename the
+     * person it was addressed to, and the door would greet the wrong name.
+     */
+    name: z.string().trim().min(2, 'الاسم قصير جدًا').max(120, 'الاسم طويل جدًا').optional(),
   })
   .transform((value) => ({
     ...value,
@@ -35,7 +43,14 @@ export const inviteTokenParamSchema = z.object({
 /** What the public invite page renders. Deliberately omits everything else. */
 export interface PublicInvitation {
   guest: {
-    name: string;
+    /**
+     * Null on a delegated slot nobody has named yet.
+     *
+     * Deliberately not defaulted to «ضيفنا الكريم» here: the screen needs to
+     * know the difference, because a nameless invitation asks the guest who
+     * they are before it accepts their answer.
+     */
+    name: string | null;
     companionsAllowed: number;
     companionsConfirmed: number;
     status: 'NOT_SENT' | 'SENT' | 'OPENED' | 'CONFIRMED' | 'DECLINED' | 'ATTENDED';
@@ -55,17 +70,19 @@ export interface PublicInvitation {
     venueMapUrl: string | null;
     cardColor: string;
     cardTitleFont: string;
+    /** Which of the three design routes produced `cardArtworkUrl`. */
+    cardDesignMode: string;
     customCardUrl: string | null;
     templateKey: string | null;
     /**
-     * The artwork to draw behind the card, already resolved by the server.
+     * The artwork shown above the card's message, already resolved by the server.
      *
      * Three sources can supply it — an upload, a URL the host pasted, or the
      * chosen template's preview image — and picking between them is a rule, not
      * a preference. Resolving it once here means the guest page and the host's
      * editor cannot disagree about which one wins.
      *
-     * Null means no artwork: the card is drawn in `cardColor` alone.
+     * Null means no artwork: the card is the message alone, in `cardColor`.
      */
     cardArtworkUrl: string | null;
     rsvpDeadline: string | null;

@@ -3,7 +3,9 @@ import type { Event, Prisma, User } from '@prisma/client';
 import type { CreateEventInput, UpdateEventInput } from '@da3wa/shared';
 import { prisma } from '../../lib/prisma.js';
 import { audit } from '../../lib/audit.js';
+import { logger } from '../../lib/logger.js';
 import { BadRequestError, NotFoundError, ValidationError } from '../../lib/errors.js';
+import { ensureTemplateTailoring } from '../design/design.service.js';
 
 /**
  * Re-check the date relationships against the *merged* event.
@@ -98,6 +100,7 @@ export async function createEvent(hostId: string, input: CreateEventInput) {
       venueLat: input.venueLat ?? null,
       venueLng: input.venueLng ?? null,
       venueMapUrl: input.venueMapUrl ?? null,
+      cardDesignMode: input.cardDesignMode,
       templateId: input.templateId ?? null,
       packageId: input.packageId ?? null,
       cardColor: input.cardColor,
@@ -144,7 +147,12 @@ export async function getEventDetail(eventId: string) {
   return toEventDto(event);
 }
 
-export async function updateEvent(current: Event, input: UpdateEventInput, actorId: string) {
+export async function updateEvent(
+  current: Event,
+  input: UpdateEventInput,
+  actorId: string,
+  actorPhone: string,
+) {
   assertDateOrder(
     input.startsAt ?? current.startsAt,
     input.endsAt === undefined ? current.endsAt : input.endsAt,
@@ -167,6 +175,25 @@ export async function updateEvent(current: Event, input: UpdateEventInput, actor
     data,
     include: EVENT_INCLUDE,
   });
+
+  /*
+   * Choosing a template opens the job of adapting it.
+   *
+   * «بعد اختياره التصميم انا اعدل عليه بشكل يناسبه» — the pick is a request for
+   * work, not the end of it, and queueing it here is what stops the operator
+   * having to watch the events table to notice one. Failure is swallowed: a
+   * bookkeeping row must never be the reason a host cannot save their card.
+   */
+  if (event.cardDesignMode === 'TEMPLATE' && event.templateId && event.template) {
+    try {
+      await ensureTemplateTailoring(event.id, event.template.nameAr, {
+        id: actorId,
+        phone: actorPhone,
+      });
+    } catch (err) {
+      logger.warn({ err, eventId: event.id }, 'could not queue template tailoring');
+    }
+  }
 
   await audit({
     action: 'event.update',

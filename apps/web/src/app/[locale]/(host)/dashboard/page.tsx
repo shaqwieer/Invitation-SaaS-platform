@@ -6,6 +6,7 @@ import type { ActivityEntry, DashboardSummary } from '@da3wa/shared';
 import { useAuth } from '@/lib/auth';
 import { useEvents } from '@/components/EventContext';
 import { EmptyState, LinkButton, Spinner } from '@/components/ui';
+import { SendQueue } from '@/components/SendQueue';
 import { browserApiBase } from '@/lib/api';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber, formatEventDate } from '@/lib/format';
@@ -77,7 +78,8 @@ export default function DashboardPage() {
    */
   const sendUnsent = useCallback(async () => {
     if (!eventId || !summary) return;
-    if (!window.confirm(t('dash.sendConfirm', { count: summary.counts.NOT_SENT }))) return;
+    const count = summary.pendingSend?.sendable ?? summary.counts.NOT_SENT;
+    if (!window.confirm(t('dash.sendConfirm', { count }))) return;
 
     setSending(true);
     setSendError(null);
@@ -164,7 +166,14 @@ export default function DashboardPage() {
         <Activity entries={summary.activity} locale={locale} t={t} />
       </div>
 
-      {sendLinks && <SendPanel links={sendLinks} t={t} onClose={() => setSendLinks(null)} />}
+      {sendLinks && (
+        <SendPanel
+          links={sendLinks}
+          locale={locale}
+          t={t}
+          onClose={() => setSendLinks(null)}
+        />
+      )}
     </div>
   );
 }
@@ -240,19 +249,36 @@ function StatTiles({
       </Tile>
 
       {/* The only tile that carries an action: "not sent" is the one number
-          that depends on the host, and it is why they opened the dashboard. */}
+          that depends on the host, and it is why they opened the dashboard.
+
+          Delegated slots are counted but not offered — they are unsent because
+          somebody else has not sent them yet, and a button that prepares
+          nothing is worse than no button. */}
       <div className="flex flex-col gap-3 rounded-card border border-emerald-700 bg-emerald-700 p-5">
         <span className="text-[13.5px] text-[#A9C6BA]">{t('dash.notSentYet')}</span>
         <span className="text-[34px] font-semibold leading-none text-[#FFFDF7]">
           {n(counts.NOT_SENT)}
         </span>
-        {counts.NOT_SENT > 0 && (
+
+        {/* Optional-chained: a browser holding new code can outlive a deploy of
+            the old API by a few seconds, and a blank tile beats a crash. */}
+        {(summary.pendingSend?.delegated ?? 0) > 0 && (
+          <span className="text-[12.5px] text-[#A9C6BA]">
+            {t('dash.awaitingDelegate', { count: n(summary.pendingSend!.delegated) })}
+          </span>
+        )}
+
+        {(summary.pendingSend?.sendable ?? counts.NOT_SENT) > 0 && (
           <button
             onClick={onSendUnsent}
             disabled={sending}
             className="rounded-[9px] bg-[#FFFDF7] py-2.5 text-[13px] font-semibold text-emerald-800 disabled:opacity-60"
           >
-            {sending ? t('dash.sendPreparing') : t('dash.sendNow')}
+            {sending
+              ? t('dash.sendPreparing')
+              : t('dash.sendNowCount', {
+                  count: n(summary.pendingSend?.sendable ?? counts.NOT_SENT),
+                })}
           </button>
         )}
       </div>
@@ -462,9 +488,21 @@ function SubStat({ label, value }: { label: string; value: string }) {
  *
  * The host taps through the list rather than the app firing thirty popups:
  * browsers block every `window.open` after the first, so an automatic burst
- * would send one invitation and silently drop the rest.
+ * would send one invitation and silently drop the rest. `SendQueue` is what
+ * keeps that survivable — it counts the taps and always names who is next, so
+ * WhatsApp stealing the tab thirty times does not cost the host their place.
  */
-function SendPanel({ links, t, onClose }: { links: GuestInviteLink[]; t: T; onClose: () => void }) {
+function SendPanel({
+  links,
+  locale,
+  t,
+  onClose,
+}: {
+  links: GuestInviteLink[];
+  locale: AppLocale;
+  t: T;
+  onClose: () => void;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-6">
       <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-t-card bg-surface sm:rounded-card">
@@ -473,23 +511,8 @@ function SendPanel({ links, t, onClose }: { links: GuestInviteLink[]; t: T; onCl
           <p className="text-[13.5px] leading-relaxed text-ink-muted">{t('dash.sendBody')}</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {links.map((link) => (
-            <div
-              key={link.guestId}
-              className="flex items-center justify-between gap-3 border-b border-[#F2F0EA] px-6 py-3.5"
-            >
-              <span className="text-[14.5px]">{link.guestName}</span>
-              <a
-                href={link.whatsappUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="shrink-0 rounded-[9px] bg-emerald-700 px-4 py-2 text-[13px] font-semibold text-[#F7F5EF]"
-              >
-                {t('dash.sendOne')}
-              </a>
-            </div>
-          ))}
+        <div className="flex-1 overflow-y-auto p-6">
+          <SendQueue links={links} locale={locale} t={t} />
         </div>
 
         <div className="border-t border-line-soft p-5">

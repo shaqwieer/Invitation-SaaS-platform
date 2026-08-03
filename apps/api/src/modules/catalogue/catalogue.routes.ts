@@ -45,12 +45,27 @@ export function createCatalogueRouter(): Router {
             nameEn: true,
             category: true,
             previewImageUrl: true,
+            previewImageMime: true,
+            previewImageVersion: true,
             priceHalalas: true,
           },
         }),
       ]);
 
-      res.json({ packages, templates });
+      res.json({
+        packages,
+        // One `previewImageUrl` for the client, resolved here so the gallery
+        // never has to know that a preview can come from either an upload or a
+        // pasted URL. Uploaded bytes win: they are the operator's own file.
+        templates: templates.map(
+          ({ previewImageMime, previewImageVersion, previewImageUrl, ...template }) => ({
+            ...template,
+            previewImageUrl: previewImageMime
+              ? `/api/templates/${template.id}/preview?v=${previewImageVersion}`
+              : previewImageUrl,
+          }),
+        ),
+      });
     } catch (err) {
       next(err);
     }

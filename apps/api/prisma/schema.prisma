@@ -50,6 +50,49 @@ enum GuestSection {
   WOMEN
 }
 
+/// Where the card artwork comes from — «قالب من الموقع» / «تصميم خاص» / «تصميمي أنا».
+///
+/// Three sources could always supply artwork (a template, an upload, a pasted
+/// URL) and a precedence rule decided between them. That rule is invisible: a
+/// host picked a template, uploaded a file to "see how it looks", and could not
+/// work out why the template no longer showed. This records which of the three
+/// the host actually *chose*, so the answer is a stored decision rather than an
+/// inference from which fields happen to be non-null.
+enum CardDesignMode {
+  /// Pick one of ours. We then tailor it to the event by hand.
+  TEMPLATE
+  /// We design it from scratch, priced per request.
+  CUSTOM_REQUEST
+  /// The host brings their own file.
+  UPLOAD
+}
+
+/// A custom-design job, from «أبغى تصميم خاص» to the finished file.
+///
+/// REQUESTED → IN_PROGRESS → DELIVERED, or CANCELLED from either. The operator
+/// contacts the host off-platform — that conversation is where the design and
+/// the price are actually agreed — and the row is what keeps the job from being
+/// lost between a WhatsApp thread and a wedding date.
+enum DesignRequestStatus {
+  REQUESTED
+  IN_PROGRESS
+  DELIVERED
+  CANCELLED
+}
+
+/// What kind of drawing the operator owes.
+///
+/// Both routes to a card end the same way — the operator uploads a file made
+/// for this one event — so both live in one queue. What differs is where the
+/// work starts and whether it is charged for.
+enum DesignRequestKind {
+  /// The host picked a template; we adapt it to their names, date and colours.
+  /// Included in the package, so it carries no price.
+  TEMPLATE_TAILORING
+  /// Drawn from scratch to a brief, «بسعر خاص».
+  CUSTOM
+}
+
 /// NOT_SENT → SENT → OPENED → CONFIRMED | DECLINED → ATTENDED.
 /// OPENED is observational, not a gate: SENT → CONFIRMED is legal.
 enum GuestStatus {
@@ -196,7 +239,20 @@ model Template {
   nameAr          String
   nameEn          String
   category        EventType @default(WEDDING)
+  /// An externally hosted preview, for a design that already lives somewhere.
   previewImageUrl String?
+
+  /// The gallery artwork itself, stored like the platform logo and event cards.
+  ///
+  /// «انا حصمم تصاميم خاصه وارفقها في الموقع» — attaching a design to the site
+  /// has to mean uploading a file. A URL column alone would send the operator
+  /// hunting for somewhere to host each design first, and the gallery would sit
+  /// empty until they did. Served by GET /api/templates/:id/preview.
+  previewImageData    Bytes?
+  previewImageMime    String?
+  /// Bumped on every write so a replaced preview busts any cache holding the old one.
+  previewImageVersion Int     @default(0)
+
   /// Charged on top of the package (the design's +١٩٩ custom-design addon).
   priceHalalas    Int      @default(0)
   isActive        Boolean  @default(true)
@@ -232,6 +288,10 @@ model Event {
   venueLat     Float?
   venueLng     Float?
   venueMapUrl  String?
+
+  /// Which of the three routes to a card the host chose. Drives the editor and,
+  /// through `resolveArtwork`, which source the guest actually sees.
+  cardDesignMode CardDesignMode @default(TEMPLATE)
 
   templateId    String?
   cardColor     String  @default("#0E5A45")
@@ -273,25 +333,87 @@ model Event {
   template  Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   package   Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
 
-  guests      Guest[]
-  invitations Invitation[]
-  rsvps       RsvpResponse[]
-  checkIns    CheckIn[]
-  scanUsers   ScanUser[]
-  orders      Order[]
-  auditLogs   AuditLog[]
+  guests         Guest[]
+  guestBatches   GuestBatch[]
+  invitations    Invitation[]
+  rsvps          RsvpResponse[]
+  checkIns       CheckIn[]
+  scanUsers      ScanUser[]
+  orders         Order[]
+  auditLogs      AuditLog[]
+  designRequests CustomDesignRequest[]
 
   @@index([hostId, startsAt])
   @@index([status, startsAt])
+}
+
+/// «تصميم خاص» — a design the operator draws for one host.
+///
+/// Many rows per event rather than one: a host who cancels, or who comes back a
+/// month later wanting a second card, must not be blocked by a dead row. The
+/// service refuses a *second open* request instead, which is the rule that
+/// actually matters.
+model CustomDesignRequest {
+  id      String @id @default(cuid())
+  eventId String
+
+  kind   DesignRequestKind   @default(CUSTOM)
+  status DesignRequestStatus @default(REQUESTED)
+
+  /// What the host asked for, in their own words. For a template tailoring it
+  /// is the operator's own note of which template was picked.
+  notes String?
+  /// Where the operator reaches them. Defaults to the account phone, but a host
+  /// may hand over a designer's or a family member's number instead.
+  contactPhone String
+
+  /// Quoted per request — «بسعر خاص». Null until the operator prices the job.
+  /// Frozen into the order's line items at checkout, like every other amount.
+  priceHalalas Int?
+  /// The operator's own notes and their reply to the host.
+  adminNotes String?
+
+  /// Set once a paid order has carried this design's charge, so a later upgrade
+  /// order for the same event cannot bill the same design twice.
+  billedAt    DateTime?
+  deliveredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+  @@index([status, createdAt])
+  @@index([kind, status])
 }
 
 model Guest {
   id      String @id @default(cuid())
   eventId String
 
-  name String
-  /// E.164. Unique per event — this is what makes import duplicate detection real.
-  phone String
+  /// Null while the slot is unclaimed.
+  ///
+  /// A delegated invitation («ضيوف أم العروس») exists before anyone knows whose
+  /// it is: the host mints the slot, the delegate forwards the link, and the
+  /// name arrives either from her as she sends it or from the guest at RSVP.
+  /// Rendered through `guestDisplayName()` everywhere, so a nameless slot reads
+  /// «ضيفنا الكريم» rather than a blank.
+  name String?
+
+  /// E.164, and null for the same reason as `name`.
+  ///
+  /// Unique per event, which is what makes import duplicate detection real —
+  /// Postgres treats NULLs as distinct in a unique index, so any number of
+  /// unclaimed slots coexist without colliding with each other.
+  ///
+  /// Every path that builds a `wa.me` link must skip a null: the link needs a
+  /// number, and `wa.me/undefined` is a dead link the host would tap once and
+  /// never diagnose.
+  phone String?
+
+  /// Set when this invitation belongs to a batch someone else distributes.
+  batchId String?
 
   /// «عائلة العريس» / «صديقات العروس» / «زملاء العمل» — an import column, and the
   /// axis of the post-event per-group attendance breakdown.
@@ -309,6 +431,7 @@ model Guest {
   updatedAt DateTime @updatedAt
 
   event      Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  batch      GuestBatch?    @relation(fields: [batchId], references: [id], onDelete: SetNull)
   invitation Invitation?
   rsvps      RsvpResponse[]
   checkIns   CheckIn[]
@@ -317,6 +440,48 @@ model Guest {
   @@index([eventId, status])
   @@index([eventId, group])
   @@index([eventId, updatedAt])
+  @@index([batchId])
+}
+
+/// A block of invitations handed to someone who is not the host.
+///
+/// The problem it solves is stated best by the host who asked for it: أم العريس
+/// cannot invite أم العروس's guests, because she does not have their numbers —
+/// but أم العروس does. So the host mints a block of slots, sends *one* message
+/// carrying this batch's link, and the delegate distributes the invitations
+/// from her own phone, one guest at a time.
+///
+/// Each slot is still an ordinary Guest with its own Invitation, its own link
+/// and its own QR. Nothing about the door, the RSVP or the report changes —
+/// only who does the sending.
+model GuestBatch {
+  id      String @id @default(cuid())
+  eventId String
+
+  /// «ضيوف أم العروس» — what the host calls this block.
+  label String
+  /// Who is distributing it, and where the batch link was sent.
+  delegateName  String
+  delegatePhone String
+
+  /// The batch page's only credential, minted like an invite token.
+  ///
+  /// Whoever holds it can see and address this batch's slots — and nothing
+  /// else: not the event's other guests, not the host's dashboard. That is the
+  /// whole point, and it is why the token is unguessable rather than the batch
+  /// id.
+  token String @unique
+
+  /// Stamped when the host hands the link over.
+  sentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guests Guest[]
+
+  @@index([eventId, createdAt])
 }
 
 /// The guest's public link and door credentials.
@@ -567,6 +732,14 @@ model PlatformSettings {
 
   /// The letter drawn in the emerald square when no logo image is uploaded.
   logoMark String @default("د")
+
+  /// What a custom design costs before the operator quotes a specific job.
+  ///
+  /// Shown to hosts as a "from" figure and pre-filled into the quote, so the
+  /// design doc's +١٩٩ ر.س is an operator setting rather than a constant in the
+  /// source. The agreed price still lives on the request row: this is only the
+  /// starting point.
+  customDesignPriceHalalas Int @default(19900)
 
   /// The logo lives in the database, not on disk.
   ///

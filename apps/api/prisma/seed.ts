@@ -102,15 +102,18 @@ const TEMPLATES = [
     priceHalalas: 0,
     sortOrder: 3,
   },
-  {
-    key: 'custom-upload',
-    nameAr: 'تصميمك أنت',
-    nameEn: 'Your own design',
-    category: 'OTHER',
-    priceHalalas: sar(199),
-    sortOrder: 4,
-  },
 ] as const;
+
+/**
+ * Templates the catalogue used to carry that are no longer designs.
+ *
+ * «تصميمك أنت» was a catalogue row so the old dropdown could offer it beside
+ * the real templates. It is a *route* to a card — `CardDesignMode.UPLOAD` — not
+ * a card, and leaving it in the gallery would put a tile reading "your own
+ * design" among the actual artwork. Deactivated rather than deleted: events
+ * already pointing at it keep a valid reference.
+ */
+const RETIRED_TEMPLATE_KEYS = ['custom-upload'];
 
 interface SeedGuest {
   name: string;
@@ -321,6 +324,11 @@ async function main(): Promise<void> {
   for (const tpl of TEMPLATES) {
     await prisma.template.upsert({ where: { key: tpl.key }, update: tpl, create: tpl });
   }
+
+  await prisma.template.updateMany({
+    where: { key: { in: RETIRED_TEMPLATE_KEYS } },
+    data: { isActive: false },
+  });
 
   console.log('› seeding demo host…');
 

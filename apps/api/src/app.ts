@@ -15,7 +15,9 @@ import {
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createEventsRouter } from './modules/events/events.routes.js';
 import { createInviteRouter } from './modules/invite/invite.routes.js';
+import { createPublicBatchRouter } from './modules/batches/batch.routes.js';
 import { createCatalogueRouter } from './modules/catalogue/catalogue.routes.js';
+import { createTemplatePreviewRouter } from './modules/catalogue/template.routes.js';
 import { createSettingsRouter } from './modules/settings/settings.routes.js';
 import { createEventCardRouter } from './modules/events/card.routes.js';
 import { createScanRouter } from './modules/scan/scan.routes.js';
@@ -121,11 +123,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
   // Packages and templates a host has to pick from. Read-only; editing stays
   // behind /api/admin.
   app.use('/api/catalogue', createCatalogueRouter());
+  // Template gallery artwork. Public for the same reason the event card is: an
+  // <img> carries no token, and this is a catalogue picture by definition.
+  app.use('/api/templates', createTemplatePreviewRouter());
   // Branding. Public because the landing page, login, invitations and the door
   // scanner all render the logo, and most of those have no account.
   app.use('/api/settings', createSettingsRouter());
   // Public — guests reach this with no account, holding only their token.
   app.use('/api/invite', createInviteRouter(limiters));
+  // Also public, and also token-only: a delegate distributing a block of
+  // invitations («ضيوف أم العروس») has no account either.
+  app.use('/api/batch', createPublicBatchRouter(limiters));
   // The door. Authenticated by a scanner session, not a user account.
   app.use('/api/scan', createScanRouter(limiters));
 

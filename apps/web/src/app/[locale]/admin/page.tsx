@@ -2,15 +2,38 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { formatMoney, type PlatformStats, type PublicBranding } from '@da3wa/shared';
+import {
+  formatMoney,
+  type AdminDesignRequestView,
+  type PlatformStats,
+  type PublicBranding,
+} from '@da3wa/shared';
 import { useAuth } from '@/lib/auth';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber } from '@/lib/format';
 import { AdminShell } from '@/components/AdminShell';
 import { apiUrl } from '@/lib/api';
 
-type Tab = 'users' | 'events' | 'packages' | 'templates' | 'orders' | 'branding';
-const TABS: Tab[] = ['users', 'events', 'packages', 'templates', 'orders', 'branding'];
+type Tab = 'users' | 'events' | 'designs' | 'packages' | 'templates' | 'orders' | 'branding';
+const TABS: Tab[] = [
+  'users',
+  'events',
+  'designs',
+  'packages',
+  'templates',
+  'orders',
+  'branding',
+];
+
+/**
+ * The design queue reads a differently-named endpoint and key.
+ *
+ * `load` derives both from the tab name, which is why every other section is
+ * one line of config — «design-requests» is the one that does not match its tab.
+ */
+const ENDPOINTS: Partial<Record<Tab, { path: string; key: string }>> = {
+  designs: { path: 'design-requests', key: 'requests' },
+};
 
 interface AdminTemplate {
   id: string;
@@ -18,6 +41,9 @@ interface AdminTemplate {
   nameAr: string;
   nameEn: string;
   category: string;
+  /** Already resolved by the API — an upload if there is one, else the URL. */
+  previewImageUrl: string | null;
+  hasPreviewImage: boolean;
   priceHalalas: number;
   sortOrder: number;
   isActive: boolean;
@@ -132,10 +158,11 @@ export default function AdminPage() {
     // Branding is a single record with its own editor, not a searchable table.
     if (tab === 'branding') return;
     const search = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-    const res = await authFetch(`/api/admin/${tab}${search}`);
+    const route = ENDPOINTS[tab] ?? { path: tab, key: tab };
+    const res = await authFetch(`/api/admin/${route.path}${search}`);
     if (!res.ok) return;
     const body = await res.json();
-    setRows(body[tab] ?? []);
+    setRows(body[route.key] ?? []);
   }, [tab, query, authFetch, user]);
 
   useEffect(() => {
@@ -269,6 +296,15 @@ export default function AdminPage() {
 
         {tab === 'branding' ? (
           <BrandingPanel t={t} locale={locale} authFetch={authFetch} onError={setError} />
+        ) : tab === 'designs' ? (
+          <DesignQueue
+            requests={rows as AdminDesignRequestView[]}
+            t={t}
+            locale={locale}
+            authFetch={authFetch}
+            onError={setError}
+            onChanged={load}
+          />
         ) : (
         <div className="overflow-x-auto rounded-card border border-line-soft bg-surface">
           {tab === 'users' && (
@@ -371,7 +407,14 @@ export default function AdminPage() {
 
           {tab === 'templates' && (
             <Table
-              headers={[t('admin.templates'), t('admin.price'), t('admin.events'), t('admin.status'), '']}
+              headers={[
+                t('admin.templates'),
+                t('admin.preview'),
+                t('admin.price'),
+                t('admin.events'),
+                t('admin.status'),
+                '',
+              ]}
             >
               {(rows as AdminTemplate[]).map((row) => (
                 <tr key={row.id} className="border-t border-[#F2F0EA]">
@@ -382,6 +425,17 @@ export default function AdminPage() {
                       </span>
                       <span className="font-latin text-xs text-ink-light">{row.key}</span>
                     </div>
+                  </Cell>
+                  {/* The artwork is the template. Showing the row without it
+                      would be a catalogue of filenames. */}
+                  <Cell>
+                    <TemplatePreviewCell
+                      template={row}
+                      t={t}
+                      authFetch={authFetch}
+                      onError={setError}
+                      onChanged={load}
+                    />
                   </Cell>
                   <Cell>{formatMoney(row.priceHalalas, { digits })}</Cell>
                   <Cell>{n(row._count?.events ?? 0)}</Cell>
@@ -521,6 +575,316 @@ export default function AdminPage() {
 }
 
 /**
+ * A template's artwork, uploaded from this row.
+ *
+ * The thumbnail doubles as the upload target: the operator's mental model is
+ * "this template's picture", and a separate dialog to attach a file to a row
+ * that already shows the file it needs would be one screen too many.
+ */
+function TemplatePreviewCell({
+  template,
+  t,
+  authFetch,
+  onError,
+  onChanged,
+}: {
+  template: AdminTemplate;
+  t: ReturnType<typeof translator>;
+  authFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  onError: (message: string | null) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const file = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const src = apiUrl(template.previewImageUrl);
+
+  const upload = async (chosen: File) => {
+    setBusy(true);
+    onError(null);
+    const body = new FormData();
+    body.append('file', chosen);
+
+    const res = await authFetch(`/api/admin/templates/${template.id}/preview`, {
+      method: 'POST',
+      body,
+    });
+    setBusy(false);
+
+    if (!res.ok) return onError(t('card.uploadFailed'));
+    await onChanged();
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    const res = await authFetch(`/api/admin/templates/${template.id}/preview`, {
+      method: 'DELETE',
+    });
+    setBusy(false);
+    if (!res.ok) return onError(t('admin.updateFailed'));
+    await onChanged();
+  };
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <input
+        ref={file}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const chosen = e.target.files?.[0];
+          if (chosen) void upload(chosen);
+        }}
+      />
+
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => file.current?.click()}
+        title={t('admin.uploadPreview')}
+        className="flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border border-line-strong bg-surface-muted text-[10px] text-ink-faint disabled:opacity-60"
+      >
+        {src ? (
+          /* eslint-disable-next-line @next/next/no-img-element -- operator artwork */
+          <img src={src} alt="" className="h-full w-full object-cover" />
+        ) : (
+          t('admin.noPreview')
+        )}
+      </button>
+
+      {template.hasPreviewImage && (
+        <Action danger onClick={() => void remove()}>
+          {t('admin.remove')}
+        </Action>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The design queue — «انا اتواصل معاه واصمم له الي يبغاه بعدين ارفعه ف الموقع».
+ *
+ * One card per job, because a job is not a table row: it carries a brief the
+ * host wrote in prose, a number to call, a price to quote and a file to hand
+ * back. Squeezing that into columns would mean opening a dialog for every one of
+ * them, and this is a screen the operator works down in a sitting.
+ *
+ * Two kinds share the queue. A template tailoring is the adaptation of a design
+ * the host picked from the gallery — included, so it has no price field. A
+ * custom design is drawn from a brief and priced per job.
+ *
+ * Delivering the artwork is the terminal action: it writes the file into the
+ * event's card slot, which is what every guest then sees.
+ */
+function DesignQueue({
+  requests,
+  t,
+  locale,
+  authFetch,
+  onError,
+  onChanged,
+}: {
+  requests: AdminDesignRequestView[];
+  t: ReturnType<typeof translator>;
+  locale: AppLocale;
+  authFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  onError: (message: string | null) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const digits = locale === 'ar' ? 'arabic' : 'western';
+
+  const patch = async (id: string, body: Record<string, unknown>) => {
+    setBusyId(id);
+    onError(null);
+    const res = await authFetch(`/api/admin/design-requests/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    setBusyId(null);
+
+    if (!res.ok) return onError(t('admin.updateFailed'));
+    await onChanged();
+  };
+
+  const deliver = async (id: string, file: File) => {
+    setBusyId(id);
+    onError(null);
+    const body = new FormData();
+    body.append('file', file);
+
+    const res = await authFetch(`/api/admin/design-requests/${id}/artwork`, {
+      method: 'POST',
+      body,
+    });
+    setBusyId(null);
+
+    if (!res.ok) return onError(t('card.uploadFailed'));
+    await onChanged();
+  };
+
+  if (requests.length === 0) {
+    return (
+      <div className="rounded-card border border-line-soft bg-surface p-8 text-body text-ink-muted">
+        {t('admin.designs.empty')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {requests.map((request) => (
+        <DesignQueueCard
+          key={request.id}
+          request={request}
+          busy={busyId === request.id}
+          digits={digits}
+          t={t}
+          onPatch={(body) => void patch(request.id, body)}
+          onDeliver={(file) => void deliver(request.id, file)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DesignQueueCard({
+  request,
+  busy,
+  digits,
+  t,
+  onPatch,
+  onDeliver,
+}: {
+  request: AdminDesignRequestView;
+  busy: boolean;
+  digits: 'arabic' | 'western';
+  t: ReturnType<typeof translator>;
+  onPatch: (body: Record<string, unknown>) => void;
+  onDeliver: (file: File) => void;
+}) {
+  const file = useRef<HTMLInputElement>(null);
+  const custom = request.kind === 'CUSTOM';
+
+  const eventDate = new Date(request.event.startsAt).toLocaleDateString('ar-SA', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  return (
+    <div className="flex flex-col gap-4 rounded-card border border-line-soft bg-surface p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-[15px] font-semibold">{request.event.title}</span>
+          <span className="text-[12.5px] text-ink-light">
+            {request.event.host.name} ·{' '}
+            <span className="ltr-nums font-latin">{request.contactPhone}</span> · {eventDate}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-chip bg-surface-muted px-3 py-1.5 text-[12px] text-ink-muted">
+            {t(`design.kind.${request.kind}`)}
+          </span>
+          <select
+            value={request.status}
+            disabled={busy}
+            onChange={(e) => onPatch({ status: e.target.value })}
+            className="rounded-[9px] border border-line-strong bg-surface px-2 py-1.5 text-[13px]"
+          >
+            {['REQUESTED', 'IN_PROGRESS', 'DELIVERED', 'CANCELLED'].map((status) => (
+              <option key={status} value={status}>
+                {t(`design.status.${status}`)}
+              </option>
+            ))}
+          </select>
+          {/* The number is here to be dialled, not read out. */}
+          <a
+            href={`https://wa.me/${request.contactPhone.replace(/\D/g, '')}`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="rounded-[9px] bg-emerald-700 px-3 py-1.5 text-[13px] font-semibold text-[#F7F5EF]"
+          >
+            {t('admin.designs.contact')}
+          </a>
+        </div>
+      </div>
+
+      {request.notes && (
+        <div className="flex flex-col gap-1 rounded-control bg-surface-muted px-3.5 py-3">
+          <span className="text-[12px] text-ink-light">{t('admin.designs.brief')}</span>
+          <span className="whitespace-pre-wrap text-[13px] leading-relaxed">{request.notes}</span>
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {/* Only a from-scratch design carries a price; tailoring a chosen
+            template is part of the package. */}
+        {custom && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12.5px] text-ink-light">
+              {t('admin.designs.price')}
+              {request.billedAt ? ` · ${t('design.priceBilled')}` : ''}
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              disabled={busy || request.billedAt !== null}
+              defaultValue={
+                request.priceHalalas === null ? '' : Math.round(request.priceHalalas / 100)
+              }
+              placeholder={formatMoney(19_900, { digits })}
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                const next = raw === '' ? null : Math.round(Number(raw) * 100);
+                if (next !== request.priceHalalas) onPatch({ priceHalalas: next });
+              }}
+              className="rounded-control border border-line-strong bg-surface px-3 py-2 text-[13.5px] ltr-nums outline-none focus:border-emerald-700 disabled:opacity-60"
+            />
+          </label>
+        )}
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] text-ink-light">{t('admin.designs.reply')}</span>
+          <textarea
+            defaultValue={request.adminNotes ?? ''}
+            disabled={busy}
+            rows={2}
+            onBlur={(e) => {
+              const next = e.target.value.trim() || null;
+              if (next !== request.adminNotes) onPatch({ adminNotes: next });
+            }}
+            className="rounded-control border border-line-strong bg-surface px-3 py-2 text-[13.5px] leading-relaxed outline-none focus:border-emerald-700"
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft pt-4">
+        <span className="text-[12.5px] text-ink-light">
+          {request.event.hasCardImage
+            ? t('admin.designs.delivered')
+            : t('admin.designs.notDelivered')}
+        </span>
+
+        <input
+          ref={file}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const chosen = e.target.files?.[0];
+            if (chosen) onDeliver(chosen);
+          }}
+        />
+        <Action onClick={() => file.current?.click()}>{t('admin.designs.upload')}</Action>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Platform branding.
  *
  * The one screen in the product that changes the product itself, so it shows a
@@ -572,6 +936,7 @@ function BrandingPanel({
         taglineAr: form.taglineAr,
         taglineEn: form.taglineEn,
         logoMark: form.logoMark,
+        customDesignPriceHalalas: form.customDesignPriceHalalas,
       }),
     });
     setBusy(false);
@@ -666,6 +1031,26 @@ function BrandingPanel({
             onChange={(e) => set('logoMark', e.target.value)}
           />
           <span className="text-[12.5px] text-ink-light">{t('branding.markHint')}</span>
+        </label>
+
+        {/* The "from" price for a custom design. The figure actually charged is
+            quoted per job on the design queue; this is what hosts are shown
+            before they ask. */}
+        <label className="flex max-w-[240px] flex-col gap-2">
+          <span className="text-[13.5px] font-medium text-[#3D4741]">
+            {t('branding.designPrice')}
+          </span>
+          <input
+            type="number"
+            min={0}
+            dir="ltr"
+            className={`${field} ltr-nums`}
+            value={Math.round(form.customDesignPriceHalalas / 100)}
+            onChange={(e) =>
+              set('customDesignPriceHalalas', Math.max(0, Math.round(Number(e.target.value) * 100)))
+            }
+          />
+          <span className="text-[12.5px] text-ink-light">{t('branding.designPriceHint')}</span>
         </label>
 
         <div className="flex flex-col gap-2 border-t border-line-soft pt-5">

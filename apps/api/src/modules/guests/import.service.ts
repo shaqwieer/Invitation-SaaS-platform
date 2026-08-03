@@ -100,7 +100,10 @@ export async function runImport(
 
   const deduped = dedupeImportRows(
     valid,
-    existing.map((g) => g.phone),
+    // Unclaimed delegated slots have no number and so cannot collide with an
+    // imported row. Passing their nulls through would put `null` in the seen-set
+    // and make the first blank cell in a spreadsheet look like a duplicate.
+    existing.map((g) => g.phone).filter((phone): phone is string => phone !== null),
   );
 
   let imported = 0;

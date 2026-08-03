@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { formatMoney, toArabicIndicDigits } from '@da3wa/shared';
 import { fetchBranding, fetchPackages } from '@/lib/api.server';
+import { DemoInviteForm } from '@/components/DemoInviteForm';
 import { Logo } from '@/components/Logo';
 import { isLocale, t, type AppLocale } from '@/lib/i18n';
 
@@ -109,13 +110,28 @@ export default async function LandingPage({ params }: { params: { locale: string
             >
               {tr('land.ctaPrimary')}
             </Link>
-            <a
-              href="#how"
+            {/* Points at the sample invitation itself. It used to be an anchor
+                to #how, so a visitor asking to *see* an invitation was scrolled
+                to three paragraphs describing one. */}
+            <Link
+              href={`/${locale}/demo`}
               className="rounded-control border border-line-strong bg-surface px-6 py-4 text-base font-semibold"
             >
               {tr('land.ctaSecondary')}
-            </a>
+            </Link>
           </div>
+
+          <DemoInviteForm
+            locale={locale}
+            labels={{
+              title: tr('demo.formTitle'),
+              hint: tr('demo.formHint'),
+              placeholder: '05XXXXXXXX',
+              send: tr('demo.formSend'),
+              invalid: tr('demo.formInvalid'),
+              message: tr('demo.waMessage'),
+            }}
+          />
 
           <dl className="mt-2 flex flex-wrap gap-x-10 gap-y-4 border-t border-line-soft pt-6">
             {[1, 2, 3].map((index) => (

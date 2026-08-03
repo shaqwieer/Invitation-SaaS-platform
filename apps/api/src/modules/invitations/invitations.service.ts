@@ -1,11 +1,11 @@
 import type { Event, Guest, Invitation } from '@prisma/client';
-import { buildInviteLink, type InviteLink } from '@da3wa/shared';
+import { buildInviteLink, guestDisplayName, type InviteLink } from '@da3wa/shared';
 import { prisma } from '../../lib/prisma.js';
 import { audit } from '../../lib/audit.js';
 import { env } from '../../config/env.js';
 import { generateDisplayCode, generateInviteToken } from '../../lib/inviteToken.js';
 import { assertGuestQuota } from '../../lib/quota.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { BadRequestError, NotFoundError } from '../../lib/errors.js';
 
 /**
  * Mint a guest's invitation, if they don't have one yet.
@@ -44,9 +44,16 @@ export interface GuestInviteLink extends InviteLink {
   displayCode: string;
 }
 
+/** A guest we can actually message — the phone is the whole point of the link. */
+type ReachableGuest = Guest & { phone: string };
+
+export function isReachable(guest: Guest): guest is ReachableGuest {
+  return guest.phone !== null;
+}
+
 function linkFor(
   event: Event,
-  guest: Guest,
+  guest: ReachableGuest,
   invitation: Invitation,
   locale: 'ar' | 'en',
 ): GuestInviteLink {
@@ -54,7 +61,9 @@ function linkFor(
 
   const link = buildInviteLink({
     phone: guest.phone,
-    name: guest.name,
+    // A slot the delegate has not named yet is still addressable — the message
+    // simply greets them the way the invitation itself does.
+    name: guestDisplayName(guest.name, locale),
     token: invitation.token,
     template,
     baseUrl: env().PUBLIC_WEB_URL,
@@ -68,7 +77,7 @@ function linkFor(
   return {
     ...link,
     guestId: guest.id,
-    guestName: guest.name,
+    guestName: guestDisplayName(guest.name, locale),
     phone: guest.phone,
     token: invitation.token,
     displayCode: invitation.displayCode,
@@ -93,6 +102,14 @@ export async function prepareSend(
   // The package cap is enforced here, not at import: the design defers the
   // upgrade to «ستُطلب ترقية عند الإرسال».
   await assertGuestQuota(event.id);
+
+  if (!isReachable(guest)) {
+    // A delegated slot nobody has claimed. The host has no number to send to —
+    // that is the delegate's half of the job, on the batch page.
+    throw new BadRequestError('Guest has no phone number', 'GUEST_NO_PHONE', {
+      messageAr: 'هذه دعوة ضمن دفعة موزَّعة — رقم الضيف يُدخل من صفحة الدفعة.',
+    });
+  }
 
   const invitation = await ensureInvitation(guest);
   const link = linkFor(event, guest, invitation, locale);
@@ -154,12 +171,18 @@ export async function prepareBatchSend(
       eventId: event.id,
       ...(options.guestIds ? { id: { in: options.guestIds } } : {}),
       ...(options.onlyUnsent ? { status: 'NOT_SENT' } : {}),
+      // Unclaimed delegated slots are excluded at the query, not filtered after.
+      // «أرسلها الآن» would otherwise sweep up fifty numberless slots and hand
+      // the host a queue of `wa.me/undefined` links — tapped once, never
+      // diagnosed. Those slots are the delegate's to send, from her page.
+      phone: { not: null },
     },
     orderBy: { createdAt: 'asc' },
   });
 
   const links: GuestInviteLink[] = [];
   for (const guest of guests) {
+    if (!isReachable(guest)) continue;
     const invitation = await ensureInvitation(guest);
     links.push(linkFor(event, guest, invitation, locale));
   }
@@ -199,6 +222,12 @@ export async function previewLink(
 ): Promise<GuestInviteLink> {
   const guest = await prisma.guest.findFirst({ where: { id: guestId, eventId: event.id } });
   if (!guest) throw new NotFoundError('Guest not found', 'GUEST_NOT_FOUND');
+
+  if (!isReachable(guest)) {
+    throw new BadRequestError('Guest has no phone number', 'GUEST_NO_PHONE', {
+      messageAr: 'هذه دعوة ضمن دفعة موزَّعة — رقم الضيف يُدخل من صفحة الدفعة.',
+    });
+  }
 
   const invitation = await ensureInvitation(guest);
   return linkFor(event, guest, invitation, locale);
