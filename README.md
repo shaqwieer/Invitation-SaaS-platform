@@ -165,6 +165,9 @@ Edit `.env`:
 - **`NEXT_PUBLIC_API_URL=https://your-domain`** — see the warning below
 - **`TRUST_PROXY=1`** — see the table above
 - `NODE_ENV=production`
+- `WEB_HOST_PORT` / `API_HOST_PORT` — only on a shared host where 3000/4000 are
+  already taken. Check with `ss -tln | grep -E ':(3000|4000)'` first; the container
+  bind fails outright on a clash. Point nginx at the same values in step 4.
 
 > **`NEXT_PUBLIC_API_URL` is a build-time value.** Next inlines every
 > `NEXT_PUBLIC_*` variable into the client bundle when the image is built, so setting it in
@@ -194,9 +197,15 @@ its own migrations. Both images run as the non-root `node` user and expose a `HE
 
 **4. nginx**
 
+Both `proxy_pass` ports below must match `API_HOST_PORT` / `WEB_HOST_PORT` from step 2.
+
 ```nginx
 server {
     server_name your-domain.com;
+
+    # Card artwork is posted through the API, which accepts up to 3 MB. nginx
+    # must not cap it lower, or the upload fails at the proxy with a 413.
+    client_max_body_size 8m;
 
     location /api/ {
         proxy_pass http://127.0.0.1:4000;

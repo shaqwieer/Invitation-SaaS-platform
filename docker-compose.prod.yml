@@ -20,8 +20,11 @@ services:
     volumes: !override []
     # The image's CMD already runs `prisma migrate deploy` before starting.
     command: !reset null
+    # Loopback only — nginx is the sole caller. The host port is configurable
+    # because a VPS often already runs something on 4000; nginx must then be
+    # pointed at the same value. The container port never moves.
     ports:
-      - '127.0.0.1:4000:4000'
+      - '127.0.0.1:${API_HOST_PORT:-4000}:4000'
 
   web:
     build:
@@ -33,4 +36,4 @@ services:
       NODE_ENV: production
     volumes: !override []
     ports:
-      - '127.0.0.1:3000:3000'
+      - '127.0.0.1:${WEB_HOST_PORT:-3000}:3000'
