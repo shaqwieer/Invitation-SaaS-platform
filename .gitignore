@@ -12,6 +12,11 @@ coverage/
 .env.*
 !.env.example
 
+# Machine-local compose overrides. Kept out of git so a fresh clone — and the
+# VPS deploy in particular — gets the documented stack, not someone's local
+# port remaps.
+docker-compose.override.yml
+
 *.log
 npm-debug.log*
 .DS_Store

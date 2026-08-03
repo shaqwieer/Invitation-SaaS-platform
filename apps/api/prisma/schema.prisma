@@ -239,6 +239,16 @@ model Event {
   /// Set when the host uploaded their own artwork instead of picking a template.
   customCardUrl String?
 
+  /// Uploaded card artwork, stored as bytes like the platform logo.
+  ///
+  /// On disk it would need a volume the VPS deploy has to remember; in the row
+  /// it travels with pg_dump and survives a container rebuild. The route caps
+  /// the size hard, so a print-resolution upload cannot bloat the table.
+  cardImageData    Bytes?
+  cardImageMime    String?
+  /// Bumped on every write so a replaced card busts any cache holding the old one.
+  cardImageVersion Int     @default(0)
+
   /// Guests may change their answer until this moment.
   rsvpDeadline DateTime?
   /// Default companion allowance applied to newly added guests.
@@ -535,4 +545,39 @@ model AuditLog {
   @@index([eventId, createdAt])
   @@index([actorType, actorId])
   @@index([action, createdAt])
+}
+
+// ─── Platform branding ───────────────────────────────────────────────────────
+
+/// Operator-editable branding, so renaming the product or swapping the logo is
+/// an admin action rather than a code change and a deploy.
+///
+/// Exactly one row, pinned to a known id. A settings *table* with many rows
+/// invites the question "which one is live?"; a fixed id makes the read a
+/// primary-key lookup that cannot return the wrong answer.
+model PlatformSettings {
+  /// Always SETTINGS_ID. The check constraint is the fixed default plus the
+  /// fact that nothing else ever writes an id here.
+  id String @id @default("singleton")
+
+  brandNameAr String @default("دعوة")
+  brandNameEn String @default("Da3wa")
+  taglineAr   String @default("منصة سعودية للدعوات الرقمية وإدارة حضور المناسبات.")
+  taglineEn   String @default("A Saudi platform for digital invitations and event attendance.")
+
+  /// The letter drawn in the emerald square when no logo image is uploaded.
+  logoMark String @default("د")
+
+  /// The logo lives in the database, not on disk.
+  ///
+  /// A file on a container filesystem disappears on the next deploy unless a
+  /// volume is mounted and remembered; a logo is a handful of kilobytes, and
+  /// putting it here means the VPS deploy has one less piece of state to get
+  /// right. Served by GET /api/settings/logo.
+  logoData Bytes?
+  logoMime String?
+  /// Bumped on every logo write so caches can be told to refetch.
+  logoVersion Int @default(0)
+
+  updatedAt DateTime @updatedAt
 }

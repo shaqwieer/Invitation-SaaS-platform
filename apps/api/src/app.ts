@@ -15,6 +15,9 @@ import {
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createEventsRouter } from './modules/events/events.routes.js';
 import { createInviteRouter } from './modules/invite/invite.routes.js';
+import { createCatalogueRouter } from './modules/catalogue/catalogue.routes.js';
+import { createSettingsRouter } from './modules/settings/settings.routes.js';
+import { createEventCardRouter } from './modules/events/card.routes.js';
 import { createScanRouter } from './modules/scan/scan.routes.js';
 import { createOrdersRouter } from './modules/orders/orders.routes.js';
 import { createWebhookRouter } from './modules/webhooks/webhook.routes.js';
@@ -49,6 +52,16 @@ export function createApp(options: CreateAppOptions = {}): Express {
       origin: env().WEB_ORIGIN,
       // Required for the refresh cookie to travel at all.
       credentials: true,
+      // Spelled out rather than left to the library default. The app uses every
+      // one of these — PATCH for event and guest edits, DELETE for removals —
+      // and an implicit list is the kind of thing that reads as "probably fine"
+      // right up until a browser says a method is not allowed.
+      methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+      // Ten minutes in production saves a preflight per mutation; in development
+      // a short window means a restarted API is trusted again immediately rather
+      // than the browser replaying a cached answer from the old process.
+      maxAge: env().NODE_ENV === 'production' ? 600 : 5,
     }),
   );
 
@@ -100,7 +113,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/api/auth', createAuthRouter(limiters));
   app.use('/api/orders', createOrdersRouter());
   app.use('/api/admin', createAdminRouter());
+  // Before the authenticated events router, deliberately: the card artwork is
+  // loaded by an <img> that cannot carry a bearer token, on a page guests reach
+  // with no account at all.
+  app.use('/api/events', createEventCardRouter());
   app.use('/api/events', createEventsRouter(limiters));
+  // Packages and templates a host has to pick from. Read-only; editing stays
+  // behind /api/admin.
+  app.use('/api/catalogue', createCatalogueRouter());
+  // Branding. Public because the landing page, login, invitations and the door
+  // scanner all render the logo, and most of those have no account.
+  app.use('/api/settings', createSettingsRouter());
   // Public — guests reach this with no account, holding only their token.
   app.use('/api/invite', createInviteRouter(limiters));
   // The door. Authenticated by a scanner session, not a user account.

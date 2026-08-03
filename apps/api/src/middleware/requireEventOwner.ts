@@ -27,11 +27,16 @@ export function requireEventOwner(paramName = 'eventId'): RequestHandler {
       if (!eventId) throw new NotFoundError('Event not found', 'EVENT_NOT_FOUND');
 
       const event = await prisma.event.findFirst({
-        where: {
-          id: eventId,
-          // Admins operate across tenants; hosts are pinned to their own rows.
-          ...(req.user.role === 'ADMIN' ? {} : { hostId: req.user.id }),
-        },
+        // Ownership, with no role escaping it — an admin is not a super-host.
+        //
+        // This used to waive the check for ADMIN, which meant an operator could
+        // read any host's guest list, phone numbers included, through the
+        // ordinary host routes. That silently contradicted the boundary the
+        // admin panel is built around: support can grant headroom, close an
+        // event and edit the catalogue, but a host's guests belong to the host.
+        // Admin oversight lives in /api/admin/*, which exposes counts, never
+        // people.
+        where: { id: eventId, hostId: req.user.id },
       });
 
       if (!event) throw new NotFoundError('Event not found', 'EVENT_NOT_FOUND');

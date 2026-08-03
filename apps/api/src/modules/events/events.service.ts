@@ -60,9 +60,22 @@ export const EVENT_INCLUDE = {
  * door password" and "change it". Every read path routes through here rather
  * than each handler remembering to omit the field.
  */
-export function toEventDto<T extends { scannerPasswordHash: string | null }>(event: T) {
-  const { scannerPasswordHash, ...rest } = event;
-  return { ...rest, hasScannerPassword: scannerPasswordHash !== null };
+export function toEventDto<
+  T extends {
+    scannerPasswordHash: string | null;
+    cardImageData?: Uint8Array | null;
+    cardImageMime?: string | null;
+  },
+>(event: T) {
+  // cardImageData is dropped, not just hidden: left in, Prisma's Bytes would be
+  // JSON-serialised into every event response — megabytes of base64 on a
+  // payload the dashboard fetches on a timer. Clients get a URL instead.
+  const { scannerPasswordHash, cardImageData, ...rest } = event;
+  return {
+    ...rest,
+    hasScannerPassword: scannerPasswordHash !== null,
+    hasCardImage: !!cardImageData && !!event.cardImageMime,
+  };
 }
 
 export async function createEvent(hostId: string, input: CreateEventInput) {
@@ -109,9 +122,16 @@ export async function createEvent(hostId: string, input: CreateEventInput) {
   return toEventDto(event);
 }
 
+/**
+ * The signed-in user's own events — always, whatever their role.
+ *
+ * Returning every event to an ADMIN filled the operator's sidebar with other
+ * people's weddings and presented them as theirs, which is not what an admin
+ * account is for. Platform-wide event oversight is `/api/admin/events`.
+ */
 export async function listEvents(user: Pick<User, 'id' | 'role'>) {
   const events = await prisma.event.findMany({
-    where: user.role === 'ADMIN' ? {} : { hostId: user.id },
+    where: { hostId: user.id },
     orderBy: { startsAt: 'asc' },
     include: EVENT_INCLUDE,
   });

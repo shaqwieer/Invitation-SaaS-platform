@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { PublicInvitation } from '@da3wa/shared';
-import { browserApiBase } from '@/lib/api';
+import { apiUrl, browserApiBase } from '@/lib/api';
 import { direction, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber, formatEventDate, mapsUrl } from '@/lib/format';
 
@@ -114,6 +114,9 @@ export function InviteScreen({
               title={event.title}
               guestName={guest.name}
               cardColor={event.cardColor}
+              cardTitleFont={event.cardTitleFont}
+              // Server-resolved: upload → pasted URL → template preview.
+              artworkUrl={apiUrl(event.cardArtworkUrl)}
             />
 
             <section className="overflow-hidden rounded-[18px] border border-line-soft bg-surface">
@@ -264,20 +267,61 @@ function Row({
   );
 }
 
+/**
+ * The card the guest actually receives.
+ *
+ * Everything the host chose in the card editor is honoured here — colour, title
+ * font and artwork. It previously read only `cardColor`, so a host could pick a
+ * font, a template and upload a design, see all three in the editor's preview,
+ * and have the guest receive none of them.
+ *
+ * With artwork the text sits on a dark scrim rather than directly on the image:
+ * an uploaded photograph has no contrast contract with us, and the guest's own
+ * name has to stay legible on top of it.
+ */
 function InvitationCard({
   locale,
   hosts,
   title,
   guestName,
   cardColor,
+  cardTitleFont,
+  artworkUrl,
 }: {
   locale: AppLocale;
   hosts: string;
   title: string;
   guestName: string;
   cardColor: string;
+  cardTitleFont: string;
+  artworkUrl: string | null;
 }) {
   const t = translator(locale);
+  // Amiri is reserved for the occasion's name — never for UI chrome.
+  const titleFont = cardTitleFont === 'plex-arabic' ? 'font-sans' : 'font-serif';
+
+  if (artworkUrl) {
+    return (
+      <section className="relative flex flex-none flex-col items-center justify-end gap-2.5 overflow-hidden rounded-[22px] border border-[#EDE8DA] px-5 py-5 text-center shadow-[0_14px_34px_-26px_rgba(23,33,29,.7)]">
+        {/* eslint-disable-next-line @next/next/no-img-element -- host-supplied
+            artwork, either from our own API or a URL they pasted. */}
+        <img src={artworkUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/35 to-black/15" />
+
+        <span className="relative text-[11px] text-white/70">{t('invite.bismillah')}</span>
+        <span className="relative text-[13px] leading-loose text-white/85">
+          {t('invite.hostsInvite', { hosts })}
+        </span>
+        <span className={`relative ${titleFont} text-[30px] leading-tight text-[#FFFDF7]`}>
+          {title}
+        </span>
+        <div className="relative mt-1 flex w-full flex-col items-center gap-1 border-t border-dashed border-white/30 pt-2.5">
+          <span className="text-xs text-white/65">{t('invite.personalFor')}</span>
+          <span className="text-[19px] font-semibold leading-snug text-[#FFFDF7]">{guestName}</span>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="flex flex-none flex-col items-center gap-2.5 rounded-[22px] border border-[#EDE8DA] bg-surface px-5 py-3.5 shadow-[0_14px_34px_-26px_rgba(23,33,29,.7)]">
@@ -286,9 +330,8 @@ function InvitationCard({
       <span className="text-center text-[13.5px] leading-loose text-ink-muted">
         {t('invite.hostsInvite', { hosts })}
       </span>
-      {/* Amiri is reserved for the occasion's name — never for UI chrome. */}
       <span
-        className="text-center font-serif text-[32px] leading-tight"
+        className={`text-center ${titleFont} text-[32px] leading-tight`}
         style={{ color: cardColor }}
       >
         {title}

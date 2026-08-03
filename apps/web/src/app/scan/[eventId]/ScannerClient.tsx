@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScanResult, ScanSession, ScanStats } from '@da3wa/shared';
 import { displayNumber } from '@/lib/format';
+import { Logo } from '@/components/Logo';
 import {
   ScanApiError,
   clearSession,
@@ -246,9 +247,9 @@ function Gate({
       className="flex min-h-screen flex-col justify-center gap-6 bg-emerald-ink px-7 py-9 text-surface-sand"
     >
       <div className="flex flex-col items-center gap-2.5">
-        <div className="flex h-11 w-11 items-center justify-center rounded-[13px] bg-emerald-700 text-[21px] font-semibold">
-          د
-        </div>
+        {/* This route is locale-free and Arabic-only by design — the whole
+            screen is dir="rtl" with inline Arabic — so the locale is explicit. */}
+        <Logo locale="ar" size="lg" showName={false} />
         <span className="text-[21px] font-semibold">ماسح الاستقبال</span>
         <span className="text-center text-[13.5px] leading-relaxed text-[#8FA69B]">
           أدخل كلمة مرور المناسبة للبدء
@@ -327,23 +328,46 @@ function CameraView({
   /** Guards against the decoder firing repeatedly while a request is in flight. */
   const busy = useRef(false);
 
+  /**
+   * Start the camera, and tear it down only once startup has finished.
+   *
+   * The teardown deliberately chains off the startup promise instead of running
+   * beside it. React's development Strict Mode mounts every effect twice —
+   * mount, clean up, mount again — and the previous version fired `stop()`
+   * without waiting, so the *second* instance rendered its <video> into the
+   * element and the first instance's teardown then cleared it. The camera light
+   * came on, permission was granted, and the screen stayed black: the exact
+   * symptom, and one that only ever appeared in development.
+   */
   useEffect(() => {
-    let scanner: { stop: () => Promise<void>; clear: () => void } | null = null;
     let cancelled = false;
+    let instance: {
+      start: (...args: never[]) => Promise<void>;
+      stop: () => Promise<void>;
+      clear: () => void;
+    } | null = null;
 
-    (async () => {
+    const ready = (async () => {
       try {
         // Imported here, not at module scope: html5-qrcode touches `document`
         // on load, which breaks the server build.
         const { Html5Qrcode } = await import('html5-qrcode');
         if (cancelled) return;
 
-        const instance = new Html5Qrcode(READER_ID, { verbose: false });
-        scanner = instance as unknown as typeof scanner;
+        const created = new Html5Qrcode(READER_ID, { verbose: false });
+        instance = created as unknown as typeof instance;
 
-        await instance.start(
+        await created.start(
           { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
+          {
+            fps: 10,
+            // No `qrbox`, deliberately. Setting one makes html5-qrcode paint its
+            // own shaded cut-out over the video, which sat on top of the corner
+            // brackets this screen already draws — two competing frames saying
+            // the same thing. Decoding the full frame is also more forgiving for
+            // door staff holding a phone at arm's length, and it removes the
+            // fixed-pixel box that overflowed narrow viewports.
+          },
           async (decoded) => {
             if (busy.current) return;
             busy.current = true;
@@ -367,7 +391,21 @@ function CameraView({
 
     return () => {
       cancelled = true;
-      void scanner?.stop().catch(() => undefined);
+      void ready.then(async () => {
+        if (!instance) return;
+        // Both throw if the scanner never reached a running state; neither
+        // failure is worth surfacing during teardown.
+        try {
+          await instance.stop();
+        } catch {
+          /* already stopped */
+        }
+        try {
+          instance.clear();
+        } catch {
+          /* element already empty */
+        }
+      });
     };
   }, [onScan, onResult]);
 
@@ -422,7 +460,22 @@ function CameraView({
       </div>
 
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[#1A2622]">
-        <div id={READER_ID} className="absolute inset-0 [&_video]:h-full [&_video]:object-cover" />
+        {/*
+          Every size rule here is !important, and that is not laziness.
+
+          html5-qrcode writes `position: relative` directly onto this element to
+          create a positioning context for its own shaded overlay, and writes
+          pixel width/height onto the <video> from whatever it measured at
+          start-up. Inline styles beat classes, so the plain `absolute inset-0`
+          this used to carry was silently overridden: the element stopped being
+          positioned, `inset-0` no longer sized it, and it collapsed to 0×0
+          inside a full-size parent. The stream ran, the camera light came on,
+          and the picture was zero pixels wide.
+        */}
+        <div
+          id={READER_ID}
+          className="!absolute inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:object-cover"
+        />
 
         {state === 'starting' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#1A2622]">

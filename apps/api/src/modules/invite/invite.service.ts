@@ -16,8 +16,20 @@ import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.
 
 type LoadedInvitation = Invitation & {
   guest: Guest;
-  event: Event & { template: Pick<Template, 'key'> | null };
+  event: Event & { template: Pick<Template, 'key' | 'previewImageUrl'> | null };
 };
+
+/**
+ * Which artwork the card is drawn with, in priority order.
+ *
+ * An upload beats a pasted URL beats the chosen template's preview. The order
+ * follows effort: a host who uploaded their designer's file meant that file, and
+ * a template is the fallback they picked before doing anything specific.
+ */
+function resolveArtwork(event: LoadedInvitation['event']): string | null {
+  if (event.cardImageMime) return `/api/events/${event.id}/card?v=${event.cardImageVersion}`;
+  return event.customCardUrl ?? event.template?.previewImageUrl ?? null;
+}
 
 /**
  * Resolve a public token.
@@ -30,7 +42,10 @@ type LoadedInvitation = Invitation & {
 async function load(token: string): Promise<LoadedInvitation> {
   const invitation = await prisma.invitation.findUnique({
     where: { token },
-    include: { guest: true, event: { include: { template: { select: { key: true } } } } },
+    include: {
+      guest: true,
+      event: { include: { template: { select: { key: true, previewImageUrl: true } } } },
+    },
   });
 
   if (!invitation) throw new NotFoundError('Invitation not found', 'INVITE_NOT_FOUND');
@@ -70,6 +85,7 @@ function toPublic(invitation: LoadedInvitation): PublicInvitation {
       cardTitleFont: event.cardTitleFont,
       customCardUrl: event.customCardUrl,
       templateKey: event.template?.key ?? null,
+      cardArtworkUrl: resolveArtwork(event),
       rsvpDeadline: event.rsvpDeadline?.toISOString() ?? null,
       sectionMode: event.sectionMode,
     },

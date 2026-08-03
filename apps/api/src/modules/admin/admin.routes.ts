@@ -17,6 +17,28 @@ import { validate } from '../../middleware/validate.js';
 import { prisma } from '../../lib/prisma.js';
 import { audit } from '../../lib/audit.js';
 import { BadRequestError } from '../../lib/errors.js';
+import multer from 'multer';
+import { updateSettingsSchema, type UpdateSettingsInput } from '@da3wa/shared';
+import {
+  clearLogo,
+  getSettings,
+  setLogo,
+  toPublicBranding,
+  updateSettings,
+} from '../settings/settings.service.js';
+
+/**
+ * Logos are small by nature. The cap is what stops someone pasting a 20 MB
+ * print-resolution PNG into a row that is read on every page load.
+ */
+const logoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 512 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
+    cb(null, allowed.includes(file.mimetype));
+  },
+});
 
 /**
  * The operator panel.
@@ -32,6 +54,75 @@ export function createAdminRouter(): Router {
   router.use(requireAuth, requireRole('ADMIN'));
 
   // ── Overview ───────────────────────────────────────────────────────────────
+  /* ── Branding ──────────────────────────────────────────────────────────── */
+
+  router.get('/settings', async (_req, res, next) => {
+    try {
+      res.json({ branding: toPublicBranding(await getSettings()) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/settings', validate(updateSettingsSchema), async (req, res, next) => {
+    try {
+      const settings = await updateSettings(req.body as UpdateSettingsInput);
+
+      await audit({
+        action: 'admin.settings_update',
+        actorId: req.user!.id,
+        targetType: 'PlatformSettings',
+        targetId: settings.id,
+        meta: { brandNameAr: settings.brandNameAr, brandNameEn: settings.brandNameEn },
+      });
+
+      res.json({ branding: toPublicBranding(settings) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/settings/logo', logoUpload.single('file'), async (req, res, next) => {
+    try {
+      // multer's fileFilter rejects by dropping the file rather than throwing,
+      // so a wrong type arrives here as an absent file — same branch as no file.
+      if (!req.file) {
+        throw new BadRequestError('Upload a PNG, JPEG, SVG or WebP under 512 KB', 'LOGO_INVALID');
+      }
+
+      const settings = await setLogo(req.file.buffer, req.file.mimetype);
+
+      await audit({
+        action: 'admin.settings_logo',
+        actorId: req.user!.id,
+        targetType: 'PlatformSettings',
+        targetId: settings.id,
+        meta: { mime: req.file.mimetype, bytes: req.file.size },
+      });
+
+      res.json({ branding: toPublicBranding(settings) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/settings/logo', async (req, res, next) => {
+    try {
+      const settings = await clearLogo();
+
+      await audit({
+        action: 'admin.settings_logo_clear',
+        actorId: req.user!.id,
+        targetType: 'PlatformSettings',
+        targetId: settings.id,
+      });
+
+      res.json({ branding: toPublicBranding(settings) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get('/stats', async (_req, res, next) => {
     try {
       const [users, events, guests, paid] = await Promise.all([

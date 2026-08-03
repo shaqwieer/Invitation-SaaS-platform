@@ -35,7 +35,13 @@ export interface RateLimitConfig {
 
 const MINUTE = 60_000;
 
-export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
+/**
+ * Production limits. These are the security-relevant numbers and are not
+ * relaxed by anything below — `auth` at 10/15min is what makes password
+ * guessing impractical, and `scanGate` at 10 is what protects a door password
+ * that door staff share by word of mouth.
+ */
+const PRODUCTION_RATE_LIMITS: RateLimitConfig = {
   auth: { windowMs: 15 * MINUTE, limit: 10 },
   otp: { windowMs: 10 * MINUTE, limit: 3 },
   inviteLookup: { windowMs: MINUTE, limit: 30 },
@@ -45,6 +51,45 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   scanGate: { windowMs: 15 * MINUTE, limit: 10 },
   general: { windowMs: 15 * MINUTE, limit: 300 },
 };
+
+/**
+ * How much slack to give a human testing by hand.
+ *
+ * Walking the product end to end means signing in and out repeatedly, opening
+ * the door gate several times and re-importing a file — which exhausts the
+ * production budgets in minutes and makes the app look broken when it is in
+ * fact working exactly as designed. Multiplying the counts keeps every limiter
+ * *present* (so a bug in the limiting path still surfaces in development)
+ * while putting the ceiling out of a tester's reach.
+ *
+ * Windows are left alone: shortening them would change which requests share a
+ * bucket, and that is behaviour worth testing as it actually ships.
+ */
+const DEV_MULTIPLIER = 25;
+
+function relax(config: RateLimitConfig, multiplier: number): RateLimitConfig {
+  const scaled = {} as RateLimitConfig;
+  // Keyed off the source object rather than a hand-written list, so a limiter
+  // added later is relaxed too instead of silently keeping production numbers.
+  for (const name of Object.keys(config) as Array<keyof RateLimitConfig>) {
+    const rule = config[name];
+    scaled[name] = { windowMs: rule.windowMs, limit: rule.limit * multiplier };
+  }
+  return scaled;
+}
+
+/**
+ * Relaxed outside production, and only there.
+ *
+ * `RATE_LIMIT_STRICT=1` forces the production numbers in development, for
+ * deliberately testing the limiter itself.
+ */
+export const DEFAULT_RATE_LIMITS: RateLimitConfig =
+  process.env.NODE_ENV === 'production' || process.env.RATE_LIMIT_STRICT === '1'
+    ? PRODUCTION_RATE_LIMITS
+    : relax(PRODUCTION_RATE_LIMITS, DEV_MULTIPLIER);
+
+export { PRODUCTION_RATE_LIMITS };
 
 interface KeyedRequest {
   get(name: string): string | undefined;

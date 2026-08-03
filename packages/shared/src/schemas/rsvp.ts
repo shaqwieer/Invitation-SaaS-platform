@@ -57,6 +57,17 @@ export interface PublicInvitation {
     cardTitleFont: string;
     customCardUrl: string | null;
     templateKey: string | null;
+    /**
+     * The artwork to draw behind the card, already resolved by the server.
+     *
+     * Three sources can supply it — an upload, a URL the host pasted, or the
+     * chosen template's preview image — and picking between them is a rule, not
+     * a preference. Resolving it once here means the guest page and the host's
+     * editor cannot disagree about which one wins.
+     *
+     * Null means no artwork: the card is drawn in `cardColor` alone.
+     */
+    cardArtworkUrl: string | null;
     rsvpDeadline: string | null;
     sectionMode: string;
   };

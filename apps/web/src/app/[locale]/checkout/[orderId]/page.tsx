@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber } from '@/lib/format';
+import { Logo } from '@/components/Logo';
 
 /**
  * Checkout (§11).
@@ -135,9 +136,7 @@ export default function CheckoutPage() {
       <div className="mx-auto flex max-w-4xl flex-col overflow-hidden rounded-card border border-line bg-surface">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft px-8 py-5">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-[30px] w-[30px] items-center justify-center rounded-[9px] bg-emerald-700 text-[15px] font-semibold text-surface-sand">
-              د
-            </span>
+            <Logo locale={locale} size="sm" showName={false} />
             <span className="text-lg font-semibold">{t('checkout.title')}</span>
           </div>
           <span className="inline-flex items-center gap-2 text-[13px] text-ink-muted">

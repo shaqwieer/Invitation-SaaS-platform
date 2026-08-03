@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
+import { prisma } from '../../lib/prisma.js';
+import { BadRequestError } from '../../lib/errors.js';
 import {
   createEventSchema,
   updateEventSchema,
@@ -22,6 +25,15 @@ import * as scan from '../scan/scan.service.js';
 import * as sessions from '../scan/session.service.js';
 import { scanLog, scanStats } from '../scan/log.service.js';
 import * as events from './events.service.js';
+
+/** Card artwork is composited in the browser, so it has to be a raster image. */
+const cardUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype));
+  },
+});
 
 export function createEventsRouter(limiters: RateLimiters): Router {
   const router = Router();
@@ -77,6 +89,57 @@ export function createEventsRouter(limiters: RateLimiters): Router {
     try {
       await events.deleteEvent(req.event!, req.user!.id);
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Upload the card artwork.
+   *
+   * 3 MB rather than the design's 10: a wedding card at the suggested
+   * 1080×1920 is a few hundred kilobytes as JPEG or WebP, and the row is read
+   * on every invitation open. PDF is not accepted — a browser cannot composite
+   * the guest's name over one, which is the whole point of the artwork.
+   */
+  router.post(
+    '/:eventId/card',
+    requireEventOwner(),
+    cardUpload.single('file'),
+    async (req, res, next) => {
+      try {
+        if (!req.file) {
+          throw new BadRequestError('Upload a PNG, JPEG or WebP under 3 MB', 'CARD_INVALID');
+        }
+
+        const event = await prisma.event.update({
+          where: { id: req.event!.id },
+          data: {
+            cardImageData: new Uint8Array(req.file.buffer),
+            cardImageMime: req.file.mimetype,
+            cardImageVersion: req.event!.cardImageVersion + 1,
+          },
+        });
+
+        res.json({ event: events.toEventDto(event) });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete('/:eventId/card', requireEventOwner(), async (req, res, next) => {
+    try {
+      const event = await prisma.event.update({
+        where: { id: req.event!.id },
+        data: {
+          cardImageData: null,
+          cardImageMime: null,
+          cardImageVersion: req.event!.cardImageVersion + 1,
+        },
+      });
+
+      res.json({ event: events.toEventDto(event) });
     } catch (err) {
       next(err);
     }

@@ -1,0 +1,39 @@
+'use client';
+
+import { createContext, useContext } from 'react';
+import type { PublicBranding } from '@da3wa/shared';
+
+/**
+ * Operator-set branding, handed down from the root layout.
+ *
+ * Fetched once on the server and passed through context rather than fetched by
+ * each component: the logo appears on every screen, and a request per instance
+ * would mean four calls to render one page.
+ *
+ * The default value is the shipped identity, so a component rendered outside
+ * the provider still draws something rather than throwing.
+ */
+const FALLBACK: PublicBranding = {
+  brandNameAr: 'دعوة',
+  brandNameEn: 'Da3wa',
+  taglineAr: 'منصة سعودية للدعوات الرقمية وإدارة حضور المناسبات.',
+  taglineEn: 'A Saudi platform for digital invitations and event attendance.',
+  logoMark: 'د',
+  logoUrl: null,
+};
+
+const BrandCtx = createContext<PublicBranding>(FALLBACK);
+
+export function BrandProvider({
+  branding,
+  children,
+}: {
+  branding: PublicBranding;
+  children: React.ReactNode;
+}) {
+  return <BrandCtx.Provider value={branding}>{children}</BrandCtx.Provider>;
+}
+
+export function useBrand(): PublicBranding {
+  return useContext(BrandCtx);
+}

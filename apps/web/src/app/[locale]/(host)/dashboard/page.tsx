@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import type { ActivityEntry, DashboardSummary } from '@da3wa/shared';
 import { useAuth } from '@/lib/auth';
+import { useEvents } from '@/components/EventContext';
+import { EmptyState, LinkButton, Spinner } from '@/components/ui';
 import { browserApiBase } from '@/lib/api';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber, formatEventDate } from '@/lib/format';
@@ -11,24 +13,10 @@ import { displayNumber, formatEventDate } from '@/lib/format';
 /** How often the dashboard re-reads itself. */
 const POLL_MS = 30_000;
 
-interface EventOption {
-  id: string;
-  title: string;
-  startsAt: string;
-}
-
 interface GuestInviteLink {
   guestId: string;
   guestName: string;
   whatsappUrl: string;
-}
-
-/** «صباح الخير» before noon — a host checking replies at 10am is not in the evening. */
-function greetingKey(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'dash.greetingMorning';
-  if (hour < 17) return 'dash.greetingAfternoon';
-  return 'dash.greetingEvening';
 }
 
 /**
@@ -43,30 +31,15 @@ export default function DashboardPage() {
   const params = useParams<{ locale: string }>();
   const locale: AppLocale = isLocale(params.locale) ? params.locale : DEFAULT_LOCALE;
   const t = translator(locale);
-  const router = useRouter();
-  const { user, ready, logout, authFetch } = useAuth();
+  const { authFetch } = useAuth();
+  const { events, current } = useEvents();
 
-  const [events, setEvents] = useState<EventOption[] | null>(null);
-  const [eventId, setEventId] = useState<string | null>(null);
+  const eventId = current?.id ?? null;
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number>(Date.now());
   const [sendLinks, setSendLinks] = useState<GuestInviteLink[] | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (ready && !user) router.replace(`/${locale}/login`);
-  }, [ready, user, router, locale]);
-
-  useEffect(() => {
-    if (!user) return;
-    void authFetch('/api/events')
-      .then((res) => (res.ok ? res.json() : { events: [] }))
-      .then((body) => {
-        setEvents(body.events);
-        setEventId((current) => current ?? body.events[0]?.id ?? null);
-      });
-  }, [user, authFetch]);
 
   const load = useCallback(async () => {
     if (!eventId) return;
@@ -136,98 +109,63 @@ export default function DashboardPage() {
     }
   }, [eventId, summary, authFetch, load, t]);
 
-  if (!ready || !user) {
+  // A host with no events lands here first. The dead end it used to be is now
+  // the entry point to the wizard — an empty screen is an invitation to act.
+  if (events !== null && events.length === 0) {
     return (
-      <main className="flex min-h-screen items-center justify-center text-body text-ink-muted">
-        {t('auth.loading')}
-      </main>
+      <EmptyState
+        title={t('dash.noEvents')}
+        body={t('dash.noEventsBody')}
+        action={
+          <LinkButton variant="primary" size="lg" href={`/${locale}/events/new`}>
+            {t('event.createCta')}
+          </LinkButton>
+        }
+      />
     );
   }
 
-  if (events !== null && events.length === 0) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 px-8 text-center">
-        <h1 className="text-h2">{t('dash.noEvents')}</h1>
-        <p className="max-w-sm text-body text-ink-muted">{t('dash.noEventsBody')}</p>
-      </main>
-    );
-  }
+  if (!summary) return <Spinner label={t('auth.loading')} />;
 
   const minutesAgo = Math.floor((Date.now() - fetchedAt) / 60_000);
 
   return (
-    <main className="min-h-screen bg-[#F6F4EE]">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-surface px-6 py-4 lg:px-8">
-        <div className="flex flex-col gap-1">
-          <span className="text-xl font-semibold">{t(greetingKey(), { name: user.name })}</span>
-          <span className="text-[13.5px] text-ink-light">
-            {t('dash.updated', {
-              ago:
-                minutesAgo < 1
-                  ? t('dash.justNow')
-                  : t('dash.minutesAgo', { count: displayNumber(minutesAgo, locale) }),
-            })}
-          </span>
-        </div>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-[13px] text-ink-light">
+          {t('dash.updated', {
+            ago:
+              minutesAgo < 1
+                ? t('dash.justNow')
+                : t('dash.minutesAgo', { count: displayNumber(minutesAgo, locale) }),
+          })}
+        </span>
+        <LinkButton href={`/${locale}/events/new`} size="sm">
+          {t('event.createCta')}
+        </LinkButton>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {events && events.length > 1 && (
-            <select
-              value={eventId ?? ''}
-              onChange={(e) => setEventId(e.target.value)}
-              className="rounded-[11px] border border-line-strong bg-surface px-3 py-2.5 text-sm"
-            >
-              {events.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.title}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <a
-            href={`/${locale === 'ar' ? 'en' : 'ar'}/dashboard`}
-            className="rounded-[9px] border border-line px-2.5 py-2 font-latin text-[13px] text-ink-light"
-          >
-            {locale === 'ar' ? 'EN' : 'ع'}
-          </a>
-
-          <button
-            onClick={() => void logout().then(() => router.replace(`/${locale}/login`))}
-            className="rounded-[11px] border border-line-strong bg-surface px-4 py-2.5 text-sm font-medium"
-          >
-            {t('auth.logout')}
-          </button>
-        </div>
-      </header>
-
-      {!summary ? (
-        <div className="p-8 text-body text-ink-muted">{t('auth.loading')}</div>
-      ) : (
-        <div className="flex flex-col gap-5 p-6 lg:p-8">
-          {sendError && (
-            <p className="rounded-card bg-status-declinedBg px-5 py-4 text-sm text-status-declinedFg">
-              {sendError}
-            </p>
-          )}
-
-          <StatTiles
-            summary={summary}
-            locale={locale}
-            t={t}
-            sending={sending}
-            onSendUnsent={sendUnsent}
-          />
-
-          <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
-            <Completion summary={summary} locale={locale} t={t} eventId={eventId!} />
-            <Activity entries={summary.activity} locale={locale} t={t} />
-          </div>
-        </div>
+      {sendError && (
+        <p className="rounded-card bg-status-declinedBg px-5 py-4 text-sm text-status-declinedFg">
+          {sendError}
+        </p>
       )}
 
+      <StatTiles
+        summary={summary}
+        locale={locale}
+        t={t}
+        sending={sending}
+        onSendUnsent={sendUnsent}
+      />
+
+      <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
+        <Completion summary={summary} locale={locale} t={t} eventId={eventId!} />
+        <Activity entries={summary.activity} locale={locale} t={t} />
+      </div>
+
       {sendLinks && <SendPanel links={sendLinks} t={t} onClose={() => setSendLinks(null)} />}
-    </main>
+    </div>
   );
 }
 

@@ -78,3 +78,30 @@ export interface PlatformStats {
   paidOrders: number;
   revenueHalalas: number;
 }
+
+/**
+ * Operator-editable branding.
+ *
+ * `logoMark` is capped at two characters because it is a single glyph drawn in
+ * a fixed square — a word would overflow it rather than shrink to fit, and the
+ * failure would only show up on the live site.
+ */
+export const updateSettingsSchema = z.object({
+  brandNameAr: z.string().trim().min(1).max(60),
+  brandNameEn: z.string().trim().min(1).max(60),
+  taglineAr: z.string().trim().max(240),
+  taglineEn: z.string().trim().max(240),
+  logoMark: z.string().trim().min(1).max(2),
+});
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+/** What the public branding endpoint returns. Never includes the logo bytes. */
+export interface PublicBranding {
+  brandNameAr: string;
+  brandNameEn: string;
+  taglineAr: string;
+  taglineEn: string;
+  logoMark: string;
+  /** Null when no image is uploaded and the mark should be drawn instead. */
+  logoUrl: string | null;
+}

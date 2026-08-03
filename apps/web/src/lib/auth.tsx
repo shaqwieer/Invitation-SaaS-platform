@@ -23,7 +23,10 @@ import { browserApiBase } from './api';
 interface AuthState {
   user: AuthUser | null;
   ready: boolean;
-  login: (phone: string, password: string) => Promise<void>;
+  /** Resolves with the signed-in user, so callers can route on role. */
+  login: (phone: string, password: string) => Promise<AuthUser>;
+  /** Same session, minted from an SMS code instead of a password. */
+  loginWithCode: (phone: string, code: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   authFetch: (path: string, init?: RequestInit) => Promise<Response>;
 }
@@ -91,6 +94,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       accessToken.current = body.accessToken;
       setUser(body.user);
+      return body.user as AuthUser;
+    },
+    [base],
+  );
+
+  const loginWithCode = useCallback(
+    async (phone: string, code: string) => {
+      const res = await fetch(`${base}/api/auth/otp/verify`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new AuthError(
+          body?.error?.code ?? 'UNKNOWN',
+          body?.error?.message ?? 'الرمز غير صحيح أو انتهت صلاحيته',
+        );
+      }
+
+      accessToken.current = body.accessToken;
+      setUser(body.user);
+      return body.user as AuthUser;
     },
     [base],
   );
@@ -111,12 +139,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const authFetch = useCallback(
     async (path: string, init: RequestInit = {}): Promise<Response> => {
+      // FormData must NOT get an explicit content-type: the browser has to set
+      // it itself so the multipart boundary is included. Setting it by hand
+      // makes the guest-list import upload unparseable on the server.
+      const isMultipart = typeof FormData !== 'undefined' && init.body instanceof FormData;
+
       const send = () =>
         fetch(`${base}${path}`, {
           ...init,
           credentials: 'include',
           headers: {
-            ...(init.body ? { 'content-type': 'application/json' } : {}),
+            ...(init.body && !isMultipart ? { 'content-type': 'application/json' } : {}),
             ...(accessToken.current ? { authorization: `Bearer ${accessToken.current}` } : {}),
             ...init.headers,
           },
@@ -132,8 +165,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ user, ready, login, logout, authFetch }),
-    [user, ready, login, logout, authFetch],
+    () => ({ user, ready, login, loginWithCode, logout, authFetch }),
+    [user, ready, login, loginWithCode, logout, authFetch],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
