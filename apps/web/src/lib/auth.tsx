@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react';
 import type { AuthUser } from '@da3wa/shared';
-import { browserApiBase } from './api';
+import { apiErrorMessage, browserApiBase } from './api';
 
 /**
  * Host authentication.
@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           body?.error?.code ?? 'UNKNOWN',
           body?.error?.code === 'INVALID_CREDENTIALS'
             ? 'رقم الجوال أو كلمة المرور غير صحيحة'
-            : (body?.error?.message ?? 'تعذّر تسجيل الدخول'),
+            : apiErrorMessage(body, 'تعذّر تسجيل الدخول'),
         );
       }
 
@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) {
         throw new AuthError(
           body?.error?.code ?? 'UNKNOWN',
-          body?.error?.message ?? 'الرمز غير صحيح أو انتهت صلاحيته',
+          apiErrorMessage(body, 'الرمز غير صحيح أو انتهت صلاحيته'),
         );
       }
 

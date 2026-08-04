@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
-import { browserApiBase } from '@/lib/api';
+import { apiErrorMessage, browserApiBase } from '@/lib/api';
 import { Button, Field, Input, PhoneInput } from '@/components/ui';
 import { Logo } from '@/components/Logo';
 import { useBrand } from '@/components/BrandContext';
@@ -51,9 +51,7 @@ export default function RegisterPage() {
         setError(
           body?.error?.code === 'PHONE_TAKEN'
             ? t('register.taken')
-            : (body?.error?.details?.messageAr ??
-              body?.error?.message ??
-              t('common.genericError')),
+            : apiErrorMessage(body, t('common.genericError')),
         );
         return;
       }
@@ -101,10 +99,14 @@ export default function RegisterPage() {
           </Field>
 
           <Field label={t('register.password')} hint={t('register.passwordHint')} required>
+            {/* The hint already promises ٨ أحرف; minLength is what makes the
+                browser hold the form back instead of spending a round trip to
+                come back with the same sentence. */}
             <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              minLength={8}
               required
             />
           </Field>

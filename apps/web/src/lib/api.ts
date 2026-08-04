@@ -26,6 +26,47 @@ export function apiUrl(path: string | null | undefined): string | null {
   return path.startsWith('http') ? path : `${browserApiBase()}${path}`;
 }
 
+interface ApiErrorBody {
+  error?: {
+    code?: string;
+    message?: string;
+    details?: {
+      messageAr?: string;
+      formErrors?: string[];
+      fieldErrors?: Record<string, string[] | undefined>;
+    };
+  };
+}
+
+/**
+ * The one line to show a human for a failed API response.
+ *
+ * Errors arrive in three shapes: a service-authored `details.messageAr`, a Zod
+ * `details.fieldErrors` map, or nothing but the top-level `message`. That last
+ * one is written for the developer reading the log — a 422 says "Validation
+ * failed" in English — so the field errors have to be preferred over it, or the
+ * sign-up screen tells an Arabic-speaking host nothing at all about why their
+ * password was refused.
+ */
+export function apiErrorMessage(body: unknown, fallback: string): string {
+  const error = (body as ApiErrorBody | null | undefined)?.error;
+  if (!error) return fallback;
+
+  const details = error.details;
+  if (details?.messageAr) return details.messageAr;
+
+  const issues = [
+    ...(details?.formErrors ?? []),
+    ...Object.values(details?.fieldErrors ?? {}).flatMap((messages) => messages ?? []),
+  ].filter(Boolean);
+
+  // Several at once is normal — a short password and a bad number arrive in the
+  // same response, and fixing one to be told about the other is a dead end.
+  if (issues.length > 0) return [...new Set(issues)].join(' · ');
+
+  return error.message ?? fallback;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
