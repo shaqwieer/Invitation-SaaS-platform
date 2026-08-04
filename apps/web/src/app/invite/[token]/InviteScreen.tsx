@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { guestDisplayName, type PublicInvitation } from '@da3wa/shared';
 import { apiUrl, browserApiBase } from '@/lib/api';
+import { cardTitleInk } from '@/lib/cardColour';
 import { direction, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber, formatEventDate, mapsUrl } from '@/lib/format';
 
@@ -404,7 +405,7 @@ function InvitationCard({
         </span>
         <span
           className={`text-center ${titleFont} text-[32px] leading-tight`}
-          style={{ color: cardColor }}
+          style={{ color: cardTitleInk(cardColor) }}
         >
           {title}
         </span>

@@ -27,7 +27,8 @@ import {
   type ToastMessage,
 } from '@/components/ui';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
-import { CARD_COLOURS, EVENT_TYPES, toIso, toLocalInput } from '@/lib/eventForm';
+import { EVENT_TYPES, toIso, toLocalInput } from '@/lib/eventForm';
+import { CARD_COLOURS, SWATCH_BORDER } from '@/lib/cardColour';
 import { displayNumber } from '@/lib/format';
 
 interface Package {
@@ -282,19 +283,21 @@ export default function NewEventPage() {
                       aria-label={value}
                       aria-pressed={cardColor === value}
                       style={{ backgroundColor: value }}
-                      className={`h-9 w-9 rounded-full transition-transform ${
+                      className={`h-9 w-9 rounded-full ${SWATCH_BORDER} transition-transform ${
                         cardColor === value
                           ? 'ring-2 ring-ink ring-offset-2 ring-offset-surface'
                           : 'hover:scale-105'
                       }`}
                     />
                   ))}
-                  <Input
+                  {/* See the card editor: <Input> is `w-full`, so the picker
+                      has to be a raw input to stay swatch-sized. */}
+                  <input
                     type="color"
                     value={cardColor}
                     onChange={(e) => setCardColor(e.target.value)}
-                    className="h-9 w-14 cursor-pointer p-1"
-                    aria-label={t('event.cardColor')}
+                    className="h-9 w-14 cursor-pointer rounded-control border border-line-strong bg-surface p-1"
+                    aria-label={t('event.cardColorCustom')}
                   />
                 </div>
               </Field>

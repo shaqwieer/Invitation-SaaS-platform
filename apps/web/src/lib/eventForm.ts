@@ -13,15 +13,6 @@ export const EVENT_TYPES = [
 
 export const EVENT_STATUSES = ['DRAFT', 'ACTIVE', 'COMPLETED', 'CANCELLED'] as const;
 
-export const CARD_COLOURS = [
-  '#0E5A45',
-  '#093127',
-  '#A8843C',
-  '#8E5F58',
-  '#3D4741',
-  '#6E5420',
-] as const;
-
 /**
  * ISO ⇄ `datetime-local`.
  *

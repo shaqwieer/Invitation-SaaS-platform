@@ -294,6 +294,7 @@
   "event.designTitle": "اختر تصميم البطاقة",
   "event.designBody": "كل قالب قابل لتغيير اللون والخط. المعاينة تتحدث فورًا.",
   "event.cardColor": "لون البطاقة",
+  "event.cardColorCustom": "لون مخصص",
   "event.cardFont": "خط العنوان",
   "event.fontAmiri": "أميري",
   "event.fontPlex": "بلكس عربي",

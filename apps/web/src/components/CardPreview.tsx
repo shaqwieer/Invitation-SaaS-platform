@@ -11,6 +11,7 @@
  */
 
 import { formatEventDate } from '@/lib/format';
+import { cardTitleInk } from '@/lib/cardColour';
 import type { AppLocale } from '@/lib/i18n';
 
 export function CardPreview({
@@ -66,7 +67,7 @@ export function CardPreview({
             className={`text-[26px] leading-relaxed ${
               cardTitleFont === 'amiri' ? 'font-serif' : 'font-sans'
             }`}
-            style={{ color: cardColor }}
+            style={{ color: cardTitleInk(cardColor) }}
           >
             {title || t('event.title')}
           </h3>

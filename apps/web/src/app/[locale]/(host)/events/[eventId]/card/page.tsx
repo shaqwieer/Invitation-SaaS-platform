@@ -39,7 +39,7 @@ import {
   type ToastMessage,
 } from '@/components/ui';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
-import { CARD_COLOURS } from '@/lib/eventForm';
+import { CARD_COLOURS, SWATCH_BORDER } from '@/lib/cardColour';
 import { apiUrl } from '@/lib/api';
 
 interface Template {
@@ -338,19 +338,22 @@ export default function CardPage() {
                     aria-label={value}
                     aria-pressed={colour === value}
                     style={{ backgroundColor: value }}
-                    className={`h-9 w-9 rounded-full transition-transform ${
+                    className={`h-9 w-9 rounded-full ${SWATCH_BORDER} transition-transform ${
                       colour === value
                         ? 'ring-2 ring-ink ring-offset-2 ring-offset-surface'
                         : 'hover:scale-105'
                     }`}
                   />
                 ))}
-                <Input
+                {/* A raw input, not <Input>: that component's base class is
+                    `w-full`, which beats a passed `w-14` and stretched the
+                    picker into something that read as an empty text field. */}
+                <input
                   type="color"
                   value={colour}
                   onChange={(e) => setColour(e.target.value)}
-                  className="h-9 w-14 cursor-pointer p-1"
-                  aria-label={t('event.cardColor')}
+                  className="h-9 w-14 cursor-pointer rounded-control border border-line-strong bg-surface p-1"
+                  aria-label={t('event.cardColorCustom')}
                 />
               </div>
             </Field>

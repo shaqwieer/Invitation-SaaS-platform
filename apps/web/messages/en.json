@@ -294,6 +294,7 @@
   "event.designTitle": "Choose the card design",
   "event.designBody": "Every template takes your colour and font. The preview updates as you type.",
   "event.cardColor": "Card colour",
+  "event.cardColorCustom": "Custom colour",
   "event.cardFont": "Title font",
   "event.fontAmiri": "Amiri",
   "event.fontPlex": "Plex Arabic",
