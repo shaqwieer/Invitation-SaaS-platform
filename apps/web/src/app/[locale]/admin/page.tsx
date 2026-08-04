@@ -12,7 +12,10 @@ import { useAuth } from '@/lib/auth';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber } from '@/lib/format';
 import { AdminShell } from '@/components/AdminShell';
+import { EVENT_TYPES } from '@/lib/eventForm';
 import { apiUrl } from '@/lib/api';
+
+type T = ReturnType<typeof translator>;
 
 type Tab = 'users' | 'events' | 'designs' | 'packages' | 'templates' | 'orders' | 'branding';
 const TABS: Tab[] = [
@@ -87,21 +90,26 @@ interface AdminPackage {
 }
 
 /**
- * `PUT /admin/packages` upserts the whole row, so a partial payload would reset
- * everything it omits back to schema defaults — silently emptying a package's
- * feature list because someone nudged its price.
+ * The whole template row, because `PUT /admin/templates` upserts it.
+ *
+ * A partial payload would reset everything it omits back to schema defaults —
+ * a nudged price silently retiring the template, because `isActive` defaults to
+ * true but `category`, `priceHalalas` and `sortOrder` default too.
+ *
+ * One field is deliberately left out: `previewImageUrl`. The listing route
+ * rewrites that column into `/api/templates/:id/preview?v=N` whenever an upload
+ * exists, so what arrives here is a resolved path, not the external URL that
+ * was stored — sending it back would fail `z.string().url()` and 422 every
+ * save. Omitted, it stays `undefined` through Zod and Prisma leaves the column
+ * alone, which also means the artwork is edited by uploading, never by typing.
  */
-function packagePayload(row: AdminPackage) {
+function templatePayload(row: AdminTemplate) {
   return {
     key: row.key,
     nameAr: row.nameAr,
     nameEn: row.nameEn,
-    guestCap: row.guestCap,
+    category: row.category,
     priceHalalas: row.priceHalalas,
-    scannerSeats: row.scannerSeats,
-    featuresAr: row.featuresAr,
-    featuresEn: row.featuresEn,
-    isHighlighted: row.isHighlighted,
     sortOrder: row.sortOrder,
     isActive: row.isActive,
   };
@@ -208,6 +216,34 @@ export default function AdminPage() {
     [authFetch, load, t],
   );
 
+  /**
+   * Retire a catalogue row.
+   *
+   * The API refuses to delete a package anything points at, because both
+   * relations are `SetNull` — the delete would succeed and quietly uncap every
+   * event on it. That refusal arrives as a code, so it gets its own message
+   * rather than the generic one, which would leave the operator with no idea a
+   * paid order was in the way.
+   */
+  const deletePackage = useCallback(
+    async (id: string) => {
+      setError(null);
+      const res = await authFetch(`/api/admin/packages/${id}`, { method: 'DELETE' });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setError(
+          payload?.error?.code === 'PACKAGE_IN_USE'
+            ? t('admin.packageInUse')
+            : t('admin.updateFailed'),
+        );
+        return;
+      }
+      await load();
+    },
+    [authFetch, load, t],
+  );
+
   const patchUser = useCallback(
     async (id: string, body: Record<string, unknown>) => {
       setError(null);
@@ -305,7 +341,28 @@ export default function AdminPage() {
             onError={setError}
             onChanged={load}
           />
+        ) : tab === 'packages' ? (
+          /* Not a table. A package carries two names, two feature lists, a cap,
+             a seat count, a price and two flags — the same reason the design
+             queue is cards, applied to the row that has the most fields in the
+             catalogue. */
+          <PackagesPanel
+            packages={rows as AdminPackage[]}
+            t={t}
+            locale={locale}
+            onSave={(body) => upsertCatalogue('packages', body)}
+            onDelete={deletePackage}
+          />
         ) : (
+        <div className="flex flex-col gap-5">
+        {tab === 'templates' && (
+          <AddTemplateForm
+            t={t}
+            existing={(rows as AdminTemplate[]).map((row) => row.key)}
+            onCreate={(body) => upsertCatalogue('templates', body)}
+          />
+        )}
+
         <div className="overflow-x-auto rounded-card border border-line-soft bg-surface">
           {tab === 'users' && (
             <Table
@@ -409,8 +466,10 @@ export default function AdminPage() {
             <Table
               headers={[
                 t('admin.templates'),
+                t('admin.category'),
                 t('admin.preview'),
                 t('admin.price'),
+                t('admin.sortOrder'),
                 t('admin.events'),
                 t('admin.status'),
                 '',
@@ -418,13 +477,57 @@ export default function AdminPage() {
             >
               {(rows as AdminTemplate[]).map((row) => (
                 <tr key={row.id} className="border-t border-[#F2F0EA]">
+                  {/* Both names are edited in place. The key is shown but never
+                      editable: every write upserts on it, so "renaming" a key
+                      would leave the old row behind and create a second one. */}
                   <Cell>
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">
-                        {locale === 'ar' ? row.nameAr : row.nameEn}
-                      </span>
+                    <div className="flex flex-col gap-1.5">
+                      <CellInput
+                        defaultValue={row.nameAr}
+                        aria-label={t('admin.nameAr')}
+                        className="w-40"
+                        onBlur={(e) => {
+                          // `catalogueName` is min(2); a one-character name
+                          // would 422 and leave the cell showing text that was
+                          // never saved.
+                          const nameAr = e.target.value.trim();
+                          if (nameAr.length >= 2 && nameAr !== row.nameAr) {
+                            void upsertCatalogue('templates', { ...templatePayload(row), nameAr });
+                          }
+                        }}
+                      />
+                      <CellInput
+                        dir="ltr"
+                        defaultValue={row.nameEn}
+                        aria-label={t('admin.nameEn')}
+                        className="w-40 font-latin"
+                        onBlur={(e) => {
+                          const nameEn = e.target.value.trim();
+                          if (nameEn.length >= 2 && nameEn !== row.nameEn) {
+                            void upsertCatalogue('templates', { ...templatePayload(row), nameEn });
+                          }
+                        }}
+                      />
                       <span className="font-latin text-xs text-ink-light">{row.key}</span>
                     </div>
+                  </Cell>
+                  <Cell>
+                    <CellSelect
+                      value={row.category}
+                      aria-label={t('admin.category')}
+                      onChange={(e) =>
+                        void upsertCatalogue('templates', {
+                          ...templatePayload(row),
+                          category: e.target.value,
+                        })
+                      }
+                    >
+                      {EVENT_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {t(`event.type.${type}`)}
+                        </option>
+                      ))}
+                    </CellSelect>
                   </Cell>
                   {/* The artwork is the template. Showing the row without it
                       would be a catalogue of filenames. */}
@@ -437,87 +540,32 @@ export default function AdminPage() {
                       onChanged={load}
                     />
                   </Cell>
-                  <Cell>{formatMoney(row.priceHalalas, { digits })}</Cell>
-                  <Cell>{n(row._count?.events ?? 0)}</Cell>
-                  <Cell>{row.isActive ? t('admin.active') : t('admin.disabled')}</Cell>
                   <Cell>
-                    <Action
-                      onClick={() =>
-                        void upsertCatalogue('templates', {
-                          key: row.key,
-                          nameAr: row.nameAr,
-                          nameEn: row.nameEn,
-                          category: row.category,
-                          priceHalalas: row.priceHalalas,
-                          sortOrder: row.sortOrder,
-                          isActive: !row.isActive,
-                        })
+                    <RiyalInput
+                      halalas={row.priceHalalas}
+                      label={t('admin.price')}
+                      onCommit={(priceHalalas) =>
+                        void upsertCatalogue('templates', { ...templatePayload(row), priceHalalas })
                       }
-                    >
-                      {row.isActive ? t('admin.disable') : t('admin.enable')}
-                    </Action>
-                  </Cell>
-                </tr>
-              ))}
-            </Table>
-          )}
-
-          {tab === 'packages' && (
-            <Table
-              headers={[
-                t('admin.packages'),
-                t('admin.cap'),
-                t('admin.price'),
-                t('admin.events'),
-                t('admin.status'),
-                '',
-              ]}
-            >
-              {(rows as AdminPackage[]).map((row) => (
-                <tr key={row.id} className="border-t border-[#F2F0EA]">
-                  <Cell>
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">
-                        {locale === 'ar' ? row.nameAr : row.nameEn}
-                      </span>
-                      <span className="font-latin text-xs text-ink-light">{row.key}</span>
-                    </div>
-                  </Cell>
-                  <Cell>
-                    <input
-                      type="number"
-                      min={1}
-                      defaultValue={row.guestCap}
-                      onBlur={(e) => {
-                        const next = Number(e.target.value);
-                        if (next && next !== row.guestCap) {
-                          void upsertCatalogue('packages', { ...packagePayload(row), guestCap: next });
-                        }
-                      }}
-                      className="w-20 rounded-[9px] border border-line-strong bg-surface px-2 py-1.5 text-[13px] ltr-nums outline-none focus:border-emerald-700"
                     />
                   </Cell>
                   <Cell>
-                    {/* Priced in halalas everywhere, but nobody types halalas —
-                        the field takes riyals and converts. */}
-                    <input
+                    <CellInput
                       type="number"
                       min={0}
-                      step="0.01"
-                      defaultValue={(row.priceHalalas / 100).toFixed(2)}
+                      max={999}
+                      defaultValue={row.sortOrder}
+                      aria-label={t('admin.sortOrder')}
+                      className="w-16 ltr-nums"
                       onBlur={(e) => {
-                        const next = Math.round(Number(e.target.value) * 100);
-                        if (Number.isFinite(next) && next !== row.priceHalalas) {
-                          void upsertCatalogue('packages', {
-                            ...packagePayload(row),
-                            priceHalalas: next,
-                          });
+                        const sortOrder = Number(e.target.value);
+                        if (Number.isFinite(sortOrder) && sortOrder !== row.sortOrder) {
+                          void upsertCatalogue('templates', { ...templatePayload(row), sortOrder });
                         }
                       }}
-                      className="w-24 rounded-[9px] border border-line-strong bg-surface px-2 py-1.5 text-[13px] ltr-nums outline-none focus:border-emerald-700"
                     />
                   </Cell>
-                  <Cell>{n(row._count.events)}</Cell>
+                  <Cell>{n(row._count?.events ?? 0)}</Cell>
                   <Cell>
                     <Badge ok={row.isActive}>
                       {row.isActive ? t('admin.active') : t('admin.disabled')}
@@ -526,8 +574,8 @@ export default function AdminPage() {
                   <Cell>
                     <Action
                       onClick={() =>
-                        void upsertCatalogue('packages', {
-                          ...packagePayload(row),
+                        void upsertCatalogue('templates', {
+                          ...templatePayload(row),
                           isActive: !row.isActive,
                         })
                       }
@@ -568,9 +616,614 @@ export default function AdminPage() {
             </Table>
           )}
         </div>
+        </div>
         )}
       </div>
     </AdminShell>
+  );
+}
+
+/* ── Catalogue editing ────────────────────────────────────────────────────── */
+
+/** The inline control every editable catalogue cell is built from. */
+function CellInput({ className = '', ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={`rounded-[9px] border border-line-strong bg-surface px-2 py-1.5 text-[13px] outline-none focus:border-emerald-700 ${className}`}
+    />
+  );
+}
+
+function CellSelect({ className = '', ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={`rounded-[9px] border border-line-strong bg-surface px-2 py-1.5 text-[13px] ${className}`}
+    />
+  );
+}
+
+/**
+ * Money is stored in halalas and typed in riyals.
+ *
+ * Every price field in the catalogue needs the same conversion in both
+ * directions, and getting it wrong in one place prices a package at 1/100th of
+ * what the operator meant — so it is written once.
+ */
+function RiyalInput({
+  halalas,
+  label,
+  onCommit,
+}: {
+  halalas: number;
+  label: string;
+  onCommit: (halalas: number) => void;
+}) {
+  return (
+    <CellInput
+      type="number"
+      min={0}
+      step="0.01"
+      // Keyed on the stored value so a save elsewhere in the row (every edit
+      // PUTs the whole record) leaves this field showing what is actually saved.
+      key={halalas}
+      defaultValue={(halalas / 100).toFixed(2)}
+      aria-label={label}
+      className="w-24 ltr-nums"
+      onBlur={(e) => {
+        const next = Math.round(Number(e.target.value) * 100);
+        if (Number.isFinite(next) && next >= 0 && next !== halalas) onCommit(next);
+      }}
+    />
+  );
+}
+
+/** `اسم الباقة` → `asm-albaqa` is useless; an English name is what slugs well. */
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+/**
+ * Add a template.
+ *
+ * Created disabled, always. The public catalogue lists active templates, and a
+ * template has no artwork until someone uploads it into the row that does not
+ * exist yet — publishing it at creation would put an empty frame in the host's
+ * gallery for however long it takes the operator to attach the design.
+ */
+function AddTemplateForm({
+  t,
+  existing,
+  onCreate,
+}: {
+  t: T;
+  existing: string[];
+  onCreate: (body: Record<string, unknown>) => Promise<boolean | undefined>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [nameAr, setNameAr] = useState('');
+  const [nameEn, setNameEn] = useState('');
+  const [key, setKey] = useState('');
+  const [keyTouched, setKeyTouched] = useState(false);
+  const [category, setCategory] = useState<string>('WEDDING');
+  const [price, setPrice] = useState('0');
+  const [duplicate, setDuplicate] = useState(false);
+
+  const effectiveKey = keyTouched ? key : slugify(nameEn);
+  const ready = nameAr.trim().length >= 2 && nameEn.trim().length >= 2 && effectiveKey.length >= 2;
+
+  const submit = async () => {
+    if (!ready) return;
+    // Both catalogue writes are upserts on the key — the server would happily
+    // overwrite an existing row here instead of creating one. Neither listing
+    // paginates, so `existing` is the whole catalogue and this check is exact.
+    if (existing.includes(effectiveKey)) return setDuplicate(true);
+    setDuplicate(false);
+
+    const created = await onCreate({
+      key: effectiveKey,
+      nameAr: nameAr.trim(),
+      nameEn: nameEn.trim(),
+      category,
+      priceHalalas: Math.max(0, Math.round(Number(price) * 100)) || 0,
+      sortOrder: 0,
+      isActive: false,
+    });
+
+    if (created === false) return;
+    setNameAr('');
+    setNameEn('');
+    setKey('');
+    setKeyTouched(false);
+    setPrice('0');
+    setOpen(false);
+  };
+
+  const close = () => {
+    setDuplicate(false);
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <div>
+        <Action onClick={() => setOpen(true)}>{t('admin.addTemplate')}</Action>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 rounded-card border border-line-soft bg-surface p-6">
+      <h2 className="text-h3">{t('admin.addTemplate')}</h2>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <FormField label={t('admin.nameAr')}>
+          <PanelInput value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
+        </FormField>
+        <FormField label={t('admin.nameEn')}>
+          <PanelInput dir="ltr" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+        </FormField>
+        <FormField label={t('admin.key')} hint={t('admin.keyHint')}>
+          <PanelInput
+            dir="ltr"
+            value={effectiveKey}
+            onChange={(e) => {
+              setKeyTouched(true);
+              setKey(slugify(e.target.value));
+            }}
+          />
+        </FormField>
+        <FormField label={t('admin.category')}>
+          <PanelSelect value={category} onChange={(e) => setCategory(e.target.value)}>
+            {EVENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(`event.type.${type}`)}
+              </option>
+            ))}
+          </PanelSelect>
+        </FormField>
+        <FormField label={t('admin.priceRiyals')}>
+          <PanelInput
+            type="number"
+            min={0}
+            step="0.01"
+            dir="ltr"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+          />
+        </FormField>
+      </div>
+
+      {duplicate && <p className="text-[12.5px] text-status-declinedFg">{t('admin.keyTaken')}</p>}
+
+      <p className="text-[12.5px] text-ink-muted">{t('admin.addTemplateNote')}</p>
+
+      <div className="flex items-center gap-2.5">
+        <Action disabled={!ready} onClick={() => void submit()}>
+          {t('admin.create')}
+        </Action>
+        <Action onClick={close}>{t('common.cancel')}</Action>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The packages section.
+ *
+ * A card per package, each an editable form with one save. The alternative —
+ * the table this replaced — could only ever expose the two fields that fit in a
+ * cell, which is why the names and the feature lists that hosts actually read on
+ * the pricing page had no editor at all.
+ */
+function PackagesPanel({
+  packages,
+  t,
+  locale,
+  onSave,
+  onDelete,
+}: {
+  packages: AdminPackage[];
+  t: T;
+  locale: AppLocale;
+  onSave: (body: Record<string, unknown>) => Promise<boolean | undefined>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <AddPackageForm t={t} existing={packages.map((row) => row.key)} onCreate={onSave} />
+
+      {packages.map((row) => (
+        <PackageCard key={row.id} row={row} t={t} locale={locale} onSave={onSave} onDelete={onDelete} />
+      ))}
+
+      {packages.length === 0 && (
+        <div className="rounded-card border border-line-soft bg-surface p-8 text-body text-ink-muted">
+          {t('admin.packagesEmpty')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Features are stored as an array and edited as lines — one per line, as read. */
+const toLines = (features: string[]) => features.join('\n');
+const fromLines = (text: string) =>
+  text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+function PackageCard({
+  row,
+  t,
+  locale,
+  onSave,
+  onDelete,
+}: {
+  row: AdminPackage;
+  t: T;
+  locale: AppLocale;
+  onSave: (body: Record<string, unknown>) => Promise<boolean | undefined>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  // Seeded once, then owned by the operator: the reload that follows a save
+  // must not overwrite what they are still typing in the card below it.
+  const [draft, setDraft] = useState({
+    nameAr: row.nameAr,
+    nameEn: row.nameEn,
+    guestCap: String(row.guestCap),
+    priceRiyals: (row.priceHalalas / 100).toFixed(2),
+    scannerSeats: String(row.scannerSeats),
+    sortOrder: String(row.sortOrder),
+    featuresAr: toLines(row.featuresAr),
+    featuresEn: toLines(row.featuresEn),
+    isHighlighted: row.isHighlighted,
+    isActive: row.isActive,
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const inUse = row._count.events > 0 || row._count.orders > 0;
+
+  const set = <K extends keyof typeof draft>(field: K, value: (typeof draft)[K]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setSaved(false);
+  };
+
+  const save = async () => {
+    setBusy(true);
+    const ok = await onSave({
+      key: row.key,
+      nameAr: draft.nameAr.trim(),
+      nameEn: draft.nameEn.trim(),
+      guestCap: Math.max(1, Number(draft.guestCap) || 1),
+      priceHalalas: Math.max(0, Math.round(Number(draft.priceRiyals) * 100)) || 0,
+      scannerSeats: Math.max(1, Number(draft.scannerSeats) || 1),
+      sortOrder: Math.max(0, Number(draft.sortOrder) || 0),
+      featuresAr: fromLines(draft.featuresAr),
+      featuresEn: fromLines(draft.featuresEn),
+      isHighlighted: draft.isHighlighted,
+      isActive: draft.isActive,
+    });
+    setBusy(false);
+    if (ok !== false) setSaved(true);
+  };
+
+  return (
+    <div className="flex flex-col gap-5 rounded-card border border-line-soft bg-surface p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-h3">{locale === 'ar' ? row.nameAr : row.nameEn}</span>
+          <span className="font-latin text-xs text-ink-light">{row.key}</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          {row.isHighlighted && <Badge ok>{t('admin.highlighted')}</Badge>}
+          <Badge ok={row.isActive}>{row.isActive ? t('admin.active') : t('admin.disabled')}</Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <FormField label={t('admin.nameAr')}>
+          <PanelInput value={draft.nameAr} onChange={(e) => set('nameAr', e.target.value)} />
+        </FormField>
+        <FormField label={t('admin.nameEn')}>
+          <PanelInput dir="ltr" value={draft.nameEn} onChange={(e) => set('nameEn', e.target.value)} />
+        </FormField>
+        <FormField label={t('admin.cap')}>
+          <PanelInput
+            type="number"
+            min={1}
+            dir="ltr"
+            value={draft.guestCap}
+            onChange={(e) => set('guestCap', e.target.value)}
+          />
+        </FormField>
+        <FormField label={t('admin.priceRiyals')}>
+          <PanelInput
+            type="number"
+            min={0}
+            step="0.01"
+            dir="ltr"
+            value={draft.priceRiyals}
+            onChange={(e) => set('priceRiyals', e.target.value)}
+          />
+        </FormField>
+        <FormField label={t('admin.scannerSeats')}>
+          <PanelInput
+            type="number"
+            min={1}
+            dir="ltr"
+            value={draft.scannerSeats}
+            onChange={(e) => set('scannerSeats', e.target.value)}
+          />
+        </FormField>
+        <FormField label={t('admin.sortOrder')}>
+          <PanelInput
+            type="number"
+            min={0}
+            dir="ltr"
+            value={draft.sortOrder}
+            onChange={(e) => set('sortOrder', e.target.value)}
+          />
+        </FormField>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField label={t('admin.featuresAr')} hint={t('admin.featuresHint')}>
+          <PanelTextarea
+            value={draft.featuresAr}
+            onChange={(e) => set('featuresAr', e.target.value)}
+          />
+        </FormField>
+        <FormField label={t('admin.featuresEn')} hint={t('admin.featuresHint')}>
+          <PanelTextarea
+            dir="ltr"
+            value={draft.featuresEn}
+            onChange={(e) => set('featuresEn', e.target.value)}
+          />
+        </FormField>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-5">
+        <Check
+          checked={draft.isActive}
+          onChange={(next) => set('isActive', next)}
+          label={t('admin.activeLabel')}
+        />
+        <Check
+          checked={draft.isHighlighted}
+          onChange={(next) => set('isHighlighted', next)}
+          label={t('admin.highlightedLabel')}
+        />
+        <span className="text-[12.5px] text-ink-light">
+          {t('admin.usedBy', {
+            events: displayNumber(row._count.events, locale),
+            orders: displayNumber(row._count.orders, locale),
+          })}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          {/* Two steps rather than a browser confirm: the dialog blocks the page
+              and this is the only irreversible button in the panel. */}
+          {inUse ? (
+            <span className="text-[12.5px] text-ink-light">{t('admin.packageInUseShort')}</span>
+          ) : confirming ? (
+            <>
+              <Action danger onClick={() => void onDelete(row.id)}>
+                {t('admin.confirmDelete')}
+              </Action>
+              <Action onClick={() => setConfirming(false)}>{t('common.cancel')}</Action>
+            </>
+          ) : (
+            <Action danger onClick={() => setConfirming(true)}>
+              {t('common.delete')}
+            </Action>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {saved && <span className="text-[13px] text-status-confirmedFg">{t('common.saved')}</span>}
+          <button
+            disabled={busy}
+            onClick={() => void save()}
+            className="rounded-control bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-[#F7F5EF] disabled:opacity-60"
+          >
+            {t('common.save')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddPackageForm({
+  t,
+  existing,
+  onCreate,
+}: {
+  t: T;
+  existing: string[];
+  onCreate: (body: Record<string, unknown>) => Promise<boolean | undefined>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [nameAr, setNameAr] = useState('');
+  const [nameEn, setNameEn] = useState('');
+  const [key, setKey] = useState('');
+  const [keyTouched, setKeyTouched] = useState(false);
+  const [guestCap, setGuestCap] = useState('100');
+  const [price, setPrice] = useState('0');
+  const [duplicate, setDuplicate] = useState(false);
+
+  const effectiveKey = keyTouched ? key : slugify(nameEn);
+  // Mirrors `catalogueName` — min(2) on both names — so an empty form is caught
+  // here rather than coming back as a 422 the operator cannot read.
+  const ready = nameAr.trim().length >= 2 && nameEn.trim().length >= 2 && effectiveKey.length >= 2;
+
+  const submit = async () => {
+    if (!ready) return;
+    if (existing.includes(effectiveKey)) return setDuplicate(true);
+    setDuplicate(false);
+
+    const created = await onCreate({
+      key: effectiveKey,
+      nameAr: nameAr.trim(),
+      nameEn: nameEn.trim(),
+      guestCap: Math.max(1, Number(guestCap) || 1),
+      priceHalalas: Math.max(0, Math.round(Number(price) * 100)) || 0,
+      scannerSeats: 1,
+      featuresAr: [],
+      featuresEn: [],
+      isHighlighted: false,
+      // Disabled until the operator has written its feature list — an empty
+      // package on the pricing page sells nothing.
+      isActive: false,
+      sortOrder: 0,
+    });
+
+    if (created === false) return;
+    setNameAr('');
+    setNameEn('');
+    setKey('');
+    setKeyTouched(false);
+    setGuestCap('100');
+    setPrice('0');
+    setOpen(false);
+  };
+
+  const close = () => {
+    setDuplicate(false);
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <div>
+        <Action onClick={() => setOpen(true)}>{t('admin.addPackage')}</Action>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 rounded-card border border-line-soft bg-surface p-6">
+      <h2 className="text-h3">{t('admin.addPackage')}</h2>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <FormField label={t('admin.nameAr')}>
+          <PanelInput value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
+        </FormField>
+        <FormField label={t('admin.nameEn')}>
+          <PanelInput dir="ltr" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+        </FormField>
+        <FormField label={t('admin.key')} hint={t('admin.keyHint')}>
+          <PanelInput
+            dir="ltr"
+            value={effectiveKey}
+            onChange={(e) => {
+              setKeyTouched(true);
+              setKey(slugify(e.target.value));
+            }}
+          />
+        </FormField>
+        <FormField label={t('admin.cap')}>
+          <PanelInput
+            type="number"
+            min={1}
+            dir="ltr"
+            value={guestCap}
+            onChange={(e) => setGuestCap(e.target.value)}
+          />
+        </FormField>
+        <FormField label={t('admin.priceRiyals')}>
+          <PanelInput
+            type="number"
+            min={0}
+            step="0.01"
+            dir="ltr"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+          />
+        </FormField>
+      </div>
+
+      {duplicate && <p className="text-[12.5px] text-status-declinedFg">{t('admin.keyTaken')}</p>}
+
+      <p className="text-[12.5px] text-ink-muted">{t('admin.addPackageNote')}</p>
+
+      <div className="flex items-center gap-2.5">
+        <Action disabled={!ready} onClick={() => void submit()}>
+          {t('admin.create')}
+        </Action>
+        <Action onClick={close}>{t('common.cancel')}</Action>
+      </div>
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-2">
+      <span className="text-[12.5px] font-medium text-ink-muted">{label}</span>
+      {children}
+      {hint && <span className="text-[11.5px] text-ink-light">{hint}</span>}
+    </label>
+  );
+}
+
+const PANEL_CONTROL =
+  'w-full rounded-control border border-line-strong bg-surface px-3.5 py-2.5 text-[14px] outline-none focus:border-emerald-700';
+
+function PanelInput({ className = '', ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`${PANEL_CONTROL} ${className}`} />;
+}
+
+function PanelSelect({ className = '', ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select {...props} className={`${PANEL_CONTROL} ${className}`} />;
+}
+
+function PanelTextarea({
+  className = '',
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} rows={5} className={`${PANEL_CONTROL} leading-relaxed ${className}`} />;
+}
+
+function Check({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2.5 text-[13px]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 accent-emerald-700"
+      />
+      {label}
+    </label>
   );
 }
 
@@ -1187,15 +1840,18 @@ function Action({
   children,
   onClick,
   danger,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-[9px] border px-3 py-1.5 text-[12.5px] font-medium ${
+      disabled={disabled}
+      className={`rounded-[9px] border px-3 py-1.5 text-[12.5px] font-medium disabled:opacity-50 ${
         danger ? 'border-[#E4C9C6] text-status-declined' : 'border-line-strong text-ink'
       }`}
     >

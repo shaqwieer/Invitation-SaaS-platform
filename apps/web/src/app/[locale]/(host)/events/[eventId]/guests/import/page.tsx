@@ -231,7 +231,7 @@ export default function ImportPage() {
             <input
               ref={fileInput}
               type="file"
-              accept=".xlsx,.csv,text/csv"
+              accept=".xlsx,.csv,text/csv,.vcf,text/vcard,text/x-vcard"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -250,6 +250,16 @@ export default function ImportPage() {
           <div className="rounded-control bg-surface-muted px-4 py-3">
             <span className="text-[12.5px] font-medium">{t('import.required')}</span>
             <p className="text-[12.5px] text-ink-muted">{t('import.requiredList')}</p>
+          </div>
+
+          {/* A .vcf needs no columns at all, so the note above does not apply to
+              it — and a host holding their guest list in their phone has no idea
+              that "export contacts" produces a file this screen accepts. */}
+          <div className="rounded-control bg-surface-muted px-4 py-3">
+            <span className="text-[12.5px] font-medium">{t('import.contacts')}</span>
+            <p className="text-[12.5px] leading-relaxed text-ink-muted">
+              {t('import.contactsHint')}
+            </p>
           </div>
 
           {busy && <Spinner label={t('common.loading')} />}

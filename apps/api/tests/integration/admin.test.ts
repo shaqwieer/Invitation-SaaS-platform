@@ -275,6 +275,90 @@ describe('catalogue', () => {
     expect(res.status).toBe(200);
     expect(res.body.template.priceHalalas).toBe(19_900);
   });
+
+  /**
+   * Deleting a package is the one irreversible action in the panel, and both
+   * relations pointing at it are `SetNull` — the database would carry out a
+   * delete that quietly uncaps every event on the package and erases which
+   * package a paid order was for. The refusal is the feature.
+   */
+  describe('deleting a package', () => {
+    const newPackage = (key: string) =>
+      prisma.package.create({
+        data: { key, nameAr: 'باقة', nameEn: 'Package', guestCap: 100, priceHalalas: 10_000 },
+      });
+
+    it('deletes one nothing points at', async () => {
+      const pkg = await newPackage('unused');
+
+      const res = await request(app)
+        .delete(`/api/admin/packages/${pkg.id}`)
+        .set(...admin.auth());
+
+      expect(res.status).toBe(200);
+      expect(await prisma.package.count()).toBe(0);
+    });
+
+    it('refuses one an event is on, and leaves the event capped', async () => {
+      const pkg = await newPackage('in-use');
+      const event = await createEvent(host.user.id);
+      await prisma.event.update({ where: { id: event.id }, data: { packageId: pkg.id } });
+
+      const res = await request(app)
+        .delete(`/api/admin/packages/${pkg.id}`)
+        .set(...admin.auth());
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('PACKAGE_IN_USE');
+      expect(await prisma.package.count()).toBe(1);
+
+      const after = await prisma.event.findUnique({ where: { id: event.id } });
+      expect(after?.packageId).toBe(pkg.id);
+    });
+
+    it('refuses one an order is against', async () => {
+      const pkg = await newPackage('sold');
+      await prisma.order.create({
+        data: {
+          orderNumber: 'DW-2026-9001',
+          userId: host.user.id,
+          packageId: pkg.id,
+          status: 'PAID',
+          lineItems: [],
+          subtotalHalalas: 10_000,
+          vatHalalas: 1_500,
+          totalHalalas: 11_500,
+        },
+      });
+
+      const res = await request(app)
+        .delete(`/api/admin/packages/${pkg.id}`)
+        .set(...admin.auth());
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('PACKAGE_IN_USE');
+    });
+
+    it('rejects an unknown id rather than reporting a delete that never happened', async () => {
+      const res = await request(app)
+        .delete('/api/admin/packages/cmsaubs5v000bs6mw96ddfi6l')
+        .set(...admin.auth());
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('PACKAGE_NOT_FOUND');
+    });
+
+    it('refuses a host outright', async () => {
+      const pkg = await newPackage('guarded');
+
+      const res = await request(app)
+        .delete(`/api/admin/packages/${pkg.id}`)
+        .set(...host.auth());
+
+      expect(res.status).toBe(403);
+      expect(await prisma.package.count()).toBe(1);
+    });
+  });
 });
 
 describe('stats', () => {

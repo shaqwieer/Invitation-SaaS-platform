@@ -95,6 +95,41 @@ describe('step 1 — parse', () => {
     expect(res.body.detectedMapping.columns.name).toBe(0);
   });
 
+  /**
+   * A phone's contact export, end to end.
+   *
+   * The parser's own quirks — folding, quoted-printable, `item1.` groups — are
+   * covered in `tests/unit/vcf.test.ts`. What this asserts is the part only the
+   * route can prove: that a .vcf reaches the parser at all, and that the host
+   * lands on the mapping screen with both columns already chosen, having never
+   * built a spreadsheet.
+   */
+  it('reads a .vcf exported from a phone', async () => {
+    const vcf = Buffer.from(
+      [
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        'FN:محمد العتيبي',
+        'item1.TEL;type=CELL;type=pref:0501234567',
+        'END:VCARD',
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        'FN:نورة الغامدي',
+        'TEL;TYPE=CELL:0559876543',
+        'END:VCARD',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+
+    const res = await parse(eventA.id, hostA, vcf, 'contacts.vcf');
+
+    expect(res.status).toBe(200);
+    expect(res.body.totalRows).toBe(2);
+    expect(res.body.detectedMapping.columns).toMatchObject({ name: 0, phone: 1 });
+    expect(res.body.detectedMapping.confidence).toMatchObject({ name: 'auto', phone: 'auto' });
+  });
+
   it('numbers rows the way the spreadsheet does', async () => {
     const res = await parse(eventA.id, hostA, buildCsv(SAMPLE), 'guests.csv');
     // Row 1 is the header, so the first guest is row 2 — the number the host

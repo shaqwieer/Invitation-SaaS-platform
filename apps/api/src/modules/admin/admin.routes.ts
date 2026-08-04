@@ -335,6 +335,49 @@ export function createAdminRouter(): Router {
     }
   });
 
+  /**
+   * Retire a package for good.
+   *
+   * Refused while anything points at it, and that refusal is the whole reason
+   * this route is more than one Prisma call. Both relations are `SetNull`
+   * (schema lines 333–334, 646), so the database would carry the delete out
+   * happily and silently: every event on the package would fall to
+   * `guestCapOverride ?? package?.guestCap ?? null` — an uncapped guest list —
+   * and paid orders would lose the row saying what was bought. Deleting is for
+   * a typo or an abandoned draft; a package that has been sold gets disabled,
+   * which already hides it from the host-facing catalogue.
+   */
+  router.delete('/packages/:packageId', async (req, res, next) => {
+    try {
+      const pkg = await prisma.package.findUnique({
+        where: { id: req.params.packageId! },
+        select: { id: true, key: true, _count: { select: { events: true, orders: true } } },
+      });
+      if (!pkg) throw new BadRequestError('Unknown package', 'PACKAGE_NOT_FOUND');
+
+      if (pkg._count.events > 0 || pkg._count.orders > 0) {
+        throw new BadRequestError(
+          'Package is referenced by events or orders — disable it instead',
+          'PACKAGE_IN_USE',
+        );
+      }
+
+      await prisma.package.delete({ where: { id: pkg.id } });
+
+      await audit({
+        action: 'admin.package_delete',
+        actorId: req.user!.id,
+        targetType: 'Package',
+        targetId: pkg.id,
+        meta: { key: pkg.key },
+      });
+
+      res.json({ deleted: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get('/templates', async (_req, res, next) => {
     try {
       const templates = await prisma.template.findMany({

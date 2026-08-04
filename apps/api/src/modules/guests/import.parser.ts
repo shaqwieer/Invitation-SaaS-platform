@@ -99,6 +99,190 @@ function parseCsv(buffer: Buffer): ParsedSheet {
   return finalize(result.data.map((row) => row.map((cell) => (cell === '' ? null : cell))));
 }
 
+/* ── vCard ──────────────────────────────────────────────────────────────────
+ *
+ * A phone's contact list, exported. This is the shortest path a host has from
+ * «الأسماء عندي في جوالي» to a guest list — the alternative is retyping a few
+ * hundred names into a spreadsheet, which is where an import feature stops
+ * being used at all.
+ *
+ * The file is flattened into the same two-column table a spreadsheet would
+ * have produced, under the headers the detector already knows, so everything
+ * downstream — mapping, normalisation, the error screen — is untouched.
+ *
+ * WhatsApp is deliberately not mentioned anywhere near this: it exports chat
+ * transcripts, not contacts, and there is no file it produces that belongs here.
+ */
+
+function isQuotedPrintable(line: string): boolean {
+  const colon = line.indexOf(':');
+  return (colon === -1 ? line : line.slice(0, colon)).toUpperCase().includes('QUOTED-PRINTABLE');
+}
+
+/**
+ * One logical property per entry.
+ *
+ * Two unrelated mechanisms can split a property across physical lines, and a
+ * file may use both:
+ *
+ *   folding      RFC 6350 §3.2 — the next line starts with a space or tab, and
+ *                that space is the marker, not part of the value. Nothing is
+ *                inserted on rejoin.
+ *   soft break   vCard 2.1 — a quoted-printable value ends in `=` and runs on.
+ *                This is what Android uses for the long Arabic names folding
+ *                would never touch, so handling only the first finds half a name.
+ */
+function unfold(text: string): string[] {
+  // CRLF is what phones actually write. Splitting on \n alone leaves a trailing
+  // \r on every value, and a phone number ending in one fails normalisation —
+  // which reads as a bad export rather than a bad parser.
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const previous = out.length > 0 ? out[out.length - 1]! : null;
+
+    if (previous !== null && (line.startsWith(' ') || line.startsWith('\t'))) {
+      out[out.length - 1] = previous + line.slice(1);
+      continue;
+    }
+
+    if (previous !== null && previous.endsWith('=') && isQuotedPrintable(previous)) {
+      out[out.length - 1] = previous.slice(0, -1) + line;
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out;
+}
+
+/**
+ * vCard 2.1's own encoding, which Android still writes.
+ *
+ * Arabic names come out of it as `=D9=85=D8=AD=D9=85=D8=AF`, so skipping this
+ * turns every Arabic contact from an Android export into mojibake. Soft line
+ * breaks are already gone by the time a value reaches here — `unfold` owns
+ * rejoining, whichever of the two mechanisms did the splitting.
+ */
+function decodeQuotedPrintable(value: string): string {
+  const bytes: number[] = [];
+
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] === '=' && /^[0-9a-fA-F]{2}$/.test(value.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(value.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(value.charCodeAt(i));
+    }
+  }
+
+  return Buffer.from(bytes).toString('utf8');
+}
+
+interface VcardProperty {
+  /** Upper-cased, with any `itemN.` group prefix stripped. */
+  name: string;
+  params: string[];
+  value: string;
+}
+
+function parseProperty(line: string): VcardProperty | null {
+  const colon = line.indexOf(':');
+  if (colon === -1) return null;
+
+  const [rawName, ...params] = line.slice(0, colon).split(';');
+  // iOS writes grouped properties — `item1.TEL;type=pref:` — and a matcher that
+  // does not strip the group finds no phone numbers at all in an iPhone export.
+  const name = (rawName ?? '').replace(/^[^.]+\./, '').trim().toUpperCase();
+
+  let value = line.slice(colon + 1);
+  const upper = params.map((p) => p.toUpperCase());
+  if (upper.some((p) => p.includes('QUOTED-PRINTABLE'))) value = decodeQuotedPrintable(value);
+
+  return { name, params: upper, value: value.trim() };
+}
+
+/** `N:Last;First;Middle;Prefix;Suffix` — reassembled, not joined in file order. */
+function nameFromStructured(value: string): string {
+  const [last = '', first = '', middle = '', prefix = ''] = value.split(';');
+  return [prefix, first, middle, last]
+    .map((part) => part.replace(/\\,/g, ',').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** Escaped commas and semicolons are literal text in a vCard value. */
+function unescapeText(value: string): string {
+  return value.replace(/\\n/gi, ' ').replace(/\\([,;\\])/g, '$1').trim();
+}
+
+function parseVcf(buffer: Buffer): ParsedSheet {
+  const table: Cell[][] = [['الاسم', 'رقم الجوال']];
+
+  let formatted = '';
+  let structured = '';
+  let phone: string | null = null;
+  let preferredPhone: string | null = null;
+
+  const flush = () => {
+    const name = formatted || (structured ? nameFromStructured(structured) : '');
+    // A contact with neither a name nor a number is a vCard artefact, not a
+    // person. One with a name but no number is a person the host will want to
+    // see listed as needing a number, so it goes through as an empty cell and
+    // lands on the errors screen — the design's rule, not a silent drop.
+    if (name || preferredPhone || phone) table.push([name, preferredPhone ?? phone]);
+
+    formatted = '';
+    structured = '';
+    phone = null;
+    preferredPhone = null;
+  };
+
+  for (const line of unfold(buffer.toString('utf8'))) {
+    const property = parseProperty(line);
+    if (!property) continue;
+
+    if (property.name === 'END' && property.value.toUpperCase() === 'VCARD') {
+      flush();
+      continue;
+    }
+
+    switch (property.name) {
+      case 'FN':
+        formatted = unescapeText(property.value);
+        break;
+      case 'N':
+        structured = property.value;
+        break;
+      case 'TEL': {
+        const value = property.value.trim();
+        if (!value) break;
+        // A contact often carries home, work and mobile. The mobile is the one
+        // an invitation can reach, so it wins wherever the export marks it.
+        const mobile = property.params.some(
+          (p) => p.includes('CELL') || p.includes('MOBILE') || p.includes('PREF'),
+        );
+        if (mobile) preferredPhone ??= value;
+        else phone ??= value;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  // A file whose last card is missing its END:VCARD still has one contact in it.
+  flush();
+
+  if (table.length === 1) {
+    throw new BadRequestError('The file has no readable contacts', 'IMPORT_EMPTY_FILE');
+  }
+
+  return finalize(table);
+}
+
 export async function parseGuestFile(buffer: Buffer, filename: string): Promise<ParsedSheet> {
   if (buffer.length === 0) {
     throw new BadRequestError('The uploaded file is empty', 'IMPORT_EMPTY_FILE');
@@ -113,6 +297,9 @@ export async function parseGuestFile(buffer: Buffer, filename: string): Promise<
     case 'xlsx':
     case 'xlsm':
       return parseXlsx(buffer);
+    case 'vcf':
+    case 'vcard':
+      return parseVcf(buffer);
     case 'xls':
       // The legacy binary format is a different container entirely; ExcelJS
       // cannot read it, and failing clearly beats failing confusingly.
@@ -121,6 +308,9 @@ export async function parseGuestFile(buffer: Buffer, filename: string): Promise<
         'IMPORT_LEGACY_XLS',
       );
     default:
-      throw new BadRequestError('Upload an .xlsx or .csv file', 'IMPORT_UNSUPPORTED_TYPE');
+      throw new BadRequestError(
+        'Upload an .xlsx, .csv or .vcf file',
+        'IMPORT_UNSUPPORTED_TYPE',
+      );
   }
 }
