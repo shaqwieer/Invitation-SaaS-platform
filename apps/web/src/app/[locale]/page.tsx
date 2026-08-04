@@ -32,7 +32,8 @@ export default async function LandingPage({ params }: { params: { locale: string
   const locale: AppLocale = params.locale;
   const tr = (key: string, vars?: Record<string, string | number>) => t(locale, key, vars);
   const digits = locale === 'ar' ? 'arabic' : 'western';
-  const num = (value: number) => (locale === 'ar' ? toArabicIndicDigits(String(value)) : String(value));
+  const num = (value: number) =>
+    locale === 'ar' ? toArabicIndicDigits(String(value)) : String(value);
 
   const [packages, branding] = await Promise.all([fetchPackages(), fetchBranding()]);
   const tagline = locale === 'ar' ? branding.taglineAr : branding.taglineEn;
@@ -54,7 +55,10 @@ export default async function LandingPage({ params }: { params: { locale: string
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-5 py-3.5 lg:px-8">
-          <Logo locale={locale} href={`/${locale}`} />
+          {/* The mark alone, and larger. The operator's logo is a wordmark that
+              already says the brand name, so printing the name beside it said
+              it twice. */}
+          <Logo locale={locale} href={`/${locale}`} size="xl" showName={false} />
 
           <nav className="hidden flex-1 items-center gap-6 ps-6 text-[13.5px] text-ink-muted md:flex">
             <a href="#how" className="hover:text-ink">
@@ -339,10 +343,7 @@ export default async function LandingPage({ params }: { params: { locale: string
             <span className="text-[12.5px] font-medium text-ink-light">
               {tr('land.footerCompany')}
             </span>
-            <Link
-              href={`/${locale}/login`}
-              className="text-[13.5px] text-ink-muted hover:text-ink"
-            >
+            <Link href={`/${locale}/login`} className="text-[13.5px] text-ink-muted hover:text-ink">
               {tr('nav.login')}
             </Link>
             <Link

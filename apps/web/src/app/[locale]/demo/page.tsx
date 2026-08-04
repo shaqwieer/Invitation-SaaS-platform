@@ -72,7 +72,10 @@ function sampleInvitation(locale: AppLocale, artworkUrl: string | null): PublicI
       venueLat: 24.7136,
       venueLng: 46.6753,
       venueMapUrl: null,
-      cardColor: '#0E5A45',
+      // White, so the band behind the artwork reads as a frame rather than a
+      // dark slab beside it. `cardTitleInk` turns the occasion's title to ink
+      // for this choice — white on white would be an invisible title.
+      cardColor: '#FFFFFF',
       cardTitleFont: 'amiri',
       cardDesignMode: 'TEMPLATE',
       customCardUrl: null,

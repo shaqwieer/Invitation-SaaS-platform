@@ -17,10 +17,34 @@ import type { AppLocale } from '@/lib/i18n';
  * trading: a logo nobody can change without a developer is the worse problem.
  */
 
+/**
+ * `box` shapes the drawn fallback square; `img` shapes an uploaded logo.
+ *
+ * They are the same square up to `lg`, but `xl` — for a header that shows the
+ * mark alone — caps the height and lets the width follow. An operator's logo is
+ * usually a wordmark, and a wide wordmark inside a square renders at a fraction
+ * of the box's height, so a bigger square would barely look bigger at all.
+ */
 const SIZES = {
-  sm: { box: 'h-[30px] w-[30px] rounded-[9px]', text: 'text-[15px]', px: 30 },
-  md: { box: 'h-8 w-8 rounded-[10px]', text: 'text-base', px: 32 },
-  lg: { box: 'h-11 w-11 rounded-[13px]', text: 'text-[21px]', px: 44 },
+  sm: {
+    box: 'h-[30px] w-[30px] rounded-[9px]',
+    img: 'h-[30px] w-[30px] rounded-[9px]',
+    text: 'text-[15px]',
+    px: 30,
+  },
+  md: { box: 'h-8 w-8 rounded-[10px]', img: 'h-8 w-8 rounded-[10px]', text: 'text-base', px: 32 },
+  lg: {
+    box: 'h-11 w-11 rounded-[13px]',
+    img: 'h-11 w-11 rounded-[13px]',
+    text: 'text-[21px]',
+    px: 44,
+  },
+  xl: {
+    box: 'h-14 w-14 rounded-[16px]',
+    img: 'h-14 w-auto max-w-[180px]',
+    text: 'text-[24px]',
+    px: 56,
+  },
 } as const;
 
 export type LogoSize = keyof typeof SIZES;
@@ -43,7 +67,7 @@ export function Logo({
   className?: string;
 }) {
   const brand = useBrand();
-  const { box, text, px } = SIZES[size];
+  const { box, img, text, px } = SIZES[size];
   const name = locale === 'ar' ? brand.brandNameAr : brand.brandNameEn;
   const logoSrc = apiUrl(brand.logoUrl);
 
@@ -53,13 +77,7 @@ export function Logo({
     // eslint-disable-next-line @next/next/no-img-element -- operator-uploaded and
     // served from our own API origin; next/image would demand a configured
     // remote pattern for no benefit here.
-    <img
-      src={logoSrc}
-      alt=""
-      width={px}
-      height={px}
-      className={`shrink-0 object-contain ${box}`}
-    />
+    <img src={logoSrc} alt="" width={px} height={px} className={`shrink-0 object-contain ${img}`} />
   ) : (
     <span
       aria-hidden
