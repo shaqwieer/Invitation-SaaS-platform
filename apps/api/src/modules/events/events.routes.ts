@@ -54,7 +54,11 @@ export function createEventsRouter(limiters: RateLimiters): Router {
 
   router.post('/', validate(createEventSchema), async (req, res, next) => {
     try {
-      const event = await events.createEvent(req.user!.id, req.body as CreateEventInput);
+      const event = await events.createEvent(
+        req.user!.id,
+        req.body as CreateEventInput,
+        req.user!.phone,
+      );
       res.status(201).json({ event });
     } catch (err) {
       next(err);

@@ -26,9 +26,17 @@ import {
   Toast,
   type ToastMessage,
 } from '@/components/ui';
+import {
+  CardColourField,
+  CardFontField,
+  DesignModeChooser,
+  TemplateGallery,
+  type DesignMode,
+  type Template,
+} from '@/components/CardDesign';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { EVENT_TYPES, toIso, toLocalInput } from '@/lib/eventForm';
-import { CARD_COLOURS, SWATCH_BORDER } from '@/lib/cardColour';
+import { apiUrl } from '@/lib/api';
 import { displayNumber } from '@/lib/format';
 
 interface Package {
@@ -64,6 +72,7 @@ export default function NewEventPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [packages, setPackages] = useState<Package[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
 
   const [title, setTitle] = useState('');
   const [type, setType] = useState('WEDDING');
@@ -76,16 +85,42 @@ export default function NewEventPage() {
   const [venueAddress, setVenueAddress] = useState('');
   const [cardColor, setCardColor] = useState('#0E5A45');
   const [cardTitleFont, setCardTitleFont] = useState('amiri');
+  const [cardDesignMode, setCardDesignMode] = useState<DesignMode>('TEMPLATE');
+  const [templateId, setTemplateId] = useState('');
   const [defaultCompanions, setDefaultCompanions] = useState(0);
 
+  // One call feeds both steps — /api/catalogue has always returned the
+  // templates alongside the packages; the wizard simply threw them away.
   useEffect(() => {
     void authFetch('/api/catalogue')
-      .then((res) => (res.ok ? res.json() : { packages: [] }))
-      .then((body) => setPackages(body.packages ?? []))
+      .then((res) => (res.ok ? res.json() : { packages: [], templates: [] }))
+      .then((body) => {
+        setPackages(body.packages ?? []);
+        setTemplates(body.templates ?? []);
+      })
       .catch(() => undefined);
   }, [authFetch]);
 
+  // The preview answers «كيف ستبدو؟» for a template pick too, not just colour
+  // and font. Nothing can be uploaded yet, so the catalogue artwork is the only
+  // possible source here — the editor's fuller resolution comes later.
+  const previewArtwork =
+    cardDesignMode === 'TEMPLATE'
+      ? apiUrl(templates.find((tpl) => tpl.id === templateId)?.previewImageUrl)
+      : null;
+
   const detailsReady = title.trim().length >= 2 && hostName.trim().length >= 2 && !!startsAt;
+
+  /**
+   * «قالب من الموقع» is the default, so leaving the step untouched would create
+   * an event on the template route with no template — valid to the schema,
+   * invisible to the operator, and a design nobody is working on. The other two
+   * routes carry their own follow-up screen, so they need no pick here.
+   *
+   * An empty gallery is not the host's fault: with nothing to choose they may
+   * pass, and `create` sends them to the card editor rather than the guest list.
+   */
+  const designReady = cardDesignMode !== 'TEMPLATE' || !!templateId || templates.length === 0;
 
   /**
    * Create the event, then optionally the order.
@@ -111,6 +146,10 @@ export default function NewEventPage() {
           venueAddress: venueAddress || null,
           cardColor,
           cardTitleFont,
+          cardDesignMode,
+          // '' is not a valid id — the schema's `.min(1)` would reject it, so an
+          // unmade choice has to travel as null.
+          templateId: cardDesignMode === 'TEMPLATE' ? templateId || null : null,
           defaultCompanionsAllowed: defaultCompanions,
         }),
       });
@@ -128,7 +167,15 @@ export default function NewEventPage() {
       await reload();
 
       if (!packageId) {
-        router.push(`/${locale}/events/${eventId}/guests`);
+        // «تصميم خاص» and «تصميمك أنت» both need something the wizard cannot
+        // collect — a brief, or a file — because neither can be attached to an
+        // event that does not exist yet. Hand off to the card editor rather
+        // than leaving the event claiming a design route nobody followed up.
+        router.push(
+          cardDesignMode === 'TEMPLATE' && templateId
+            ? `/${locale}/events/${eventId}/guests`
+            : `/${locale}/events/${eventId}/card`,
+        );
         return;
       }
 
@@ -270,53 +317,45 @@ export default function NewEventPage() {
           {step === 2 && (
             <>
               <div className="flex flex-col gap-1">
-                <h2 className="text-h3">{t('event.designTitle')}</h2>
-                <p className="text-body text-ink-muted">{t('event.designBody')}</p>
+                <h2 className="text-h3">{t('card.chooseTitle')}</h2>
+                <p className="text-body text-ink-muted">{t('card.chooseSubtitle')}</p>
               </div>
 
-              <Field label={t('event.cardColor')}>
-                <div className="flex flex-wrap items-center gap-2.5">
-                  {CARD_COLOURS.map((value) => (
-                    <button
-                      key={value}
-                      onClick={() => setCardColor(value)}
-                      aria-label={value}
-                      aria-pressed={cardColor === value}
-                      style={{ backgroundColor: value }}
-                      className={`h-9 w-9 rounded-full ${SWATCH_BORDER} transition-transform ${
-                        cardColor === value
-                          ? 'ring-2 ring-ink ring-offset-2 ring-offset-surface'
-                          : 'hover:scale-105'
-                      }`}
-                    />
-                  ))}
-                  {/* See the card editor: <Input> is `w-full`, so the picker
-                      has to be a raw input to stay swatch-sized. */}
-                  <input
-                    type="color"
-                    value={cardColor}
-                    onChange={(e) => setCardColor(e.target.value)}
-                    className="h-9 w-14 cursor-pointer rounded-control border border-line-strong bg-surface p-1"
-                    aria-label={t('event.cardColorCustom')}
-                  />
-                </div>
-              </Field>
+              <DesignModeChooser mode={cardDesignMode} onChange={setCardDesignMode} t={t} />
 
-              <Field label={t('event.cardFont')}>
-                <Select
-                  value={cardTitleFont}
-                  onChange={(e) => setCardTitleFont(e.target.value)}
-                >
-                  <option value="amiri">{t('event.fontAmiri')}</option>
-                  <option value="plex-arabic">{t('event.fontPlex')}</option>
-                </Select>
-              </Field>
+              {cardDesignMode === 'TEMPLATE' ? (
+                <TemplateGallery
+                  templates={templates}
+                  templateId={templateId}
+                  onPick={setTemplateId}
+                  bare
+                  locale={locale}
+                  t={t}
+                />
+              ) : (
+                <p className="rounded-control bg-surface-muted px-3.5 py-3 text-[12.5px] leading-relaxed text-ink-muted">
+                  {t(`event.designAfterCreate.${cardDesignMode}`)}
+                </p>
+              )}
+
+              <div className="border-t border-line-soft pt-5">
+                <CardColourField
+                  colour={cardColor}
+                  onChange={setCardColor}
+                  hint={t('card.colourNote')}
+                  t={t}
+                />
+              </div>
+
+              <CardFontField font={cardTitleFont} onChange={setCardTitleFont} t={t} />
 
               <div className="flex justify-between">
                 <Button variant="secondary" onClick={() => setStep(1)}>
                   {t('common.back')}
                 </Button>
-                <Button onClick={() => setStep(3)}>{t('common.next')}</Button>
+                <Button disabled={!designReady} onClick={() => setStep(3)}>
+                  {t('common.next')}
+                </Button>
               </div>
             </>
           )}
@@ -390,6 +429,7 @@ export default function NewEventPage() {
           timezone="Asia/Riyadh"
           cardColor={cardColor}
           cardTitleFont={cardTitleFont}
+          artworkUrl={previewArtwork}
           locale={locale}
           t={t}
         />

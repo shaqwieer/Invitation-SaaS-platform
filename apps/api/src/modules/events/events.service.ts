@@ -80,7 +80,7 @@ export function toEventDto<
   };
 }
 
-export async function createEvent(hostId: string, input: CreateEventInput) {
+export async function createEvent(hostId: string, input: CreateEventInput, hostPhone: string) {
   assertDateOrder(input.startsAt, input.endsAt, input.rsvpDeadline);
   await assertCatalogueRefs(input.templateId, input.packageId);
 
@@ -113,6 +113,21 @@ export async function createEvent(hostId: string, input: CreateEventInput) {
     },
     include: EVENT_INCLUDE,
   });
+
+  // Same rule as updateEvent: a chosen template is a request for work. The
+  // wizard's design step can now settle that choice before the event exists, so
+  // queueing it only on update would let a host pick a template, pay, and have
+  // nothing ever reach the operator's queue.
+  if (event.cardDesignMode === 'TEMPLATE' && event.templateId && event.template) {
+    try {
+      await ensureTemplateTailoring(event.id, event.template.nameAr, {
+        id: hostId,
+        phone: hostPhone,
+      });
+    } catch (err) {
+      logger.warn({ err, eventId: event.id }, 'could not queue template tailoring');
+    }
+  }
 
   await audit({
     action: 'event.create',

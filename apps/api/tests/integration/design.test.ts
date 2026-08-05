@@ -278,6 +278,53 @@ describe('picking a template queues its tailoring', () => {
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.notes).toContain('كلاسيكي');
   });
+
+  /**
+   * The creation wizard settles the template before the event exists, so the
+   * pick arrives on POST rather than PATCH. Queueing on update alone let a host
+   * choose a design in the wizard, pay, and have nothing reach the operator.
+   */
+  it('opens the job when the template is chosen at creation', async () => {
+    const classic = await seedTemplate('classic-at-create');
+
+    const res = await request(app)
+      .post('/api/events')
+      .set(...host.auth())
+      .send({
+        title: 'زفاف سميّة',
+        hostName: 'أم عبدالعزيز',
+        startsAt: new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString(),
+        cardDesignMode: 'TEMPLATE',
+        templateId: classic.id,
+      })
+      .expect(201);
+
+    const jobs = await prisma.customDesignRequest.findMany({
+      where: { eventId: res.body.event.id as string, kind: 'TEMPLATE_TAILORING' },
+    });
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.notes).toContain('كلاسيكي');
+  });
+
+  it('opens no job when the host brings their own design', async () => {
+    const res = await request(app)
+      .post('/api/events')
+      .set(...host.auth())
+      .send({
+        title: 'زفاف بتصميم جاهز',
+        hostName: 'أم عبدالعزيز',
+        startsAt: new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString(),
+        cardDesignMode: 'UPLOAD',
+      })
+      .expect(201);
+
+    const jobs = await prisma.customDesignRequest.findMany({
+      where: { eventId: res.body.event.id as string },
+    });
+
+    expect(jobs).toHaveLength(0);
+  });
 });
 
 describe('the operator side', () => {
