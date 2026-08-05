@@ -43,9 +43,16 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 
 # `output: 'standalone'` emits a server plus exactly the node_modules it needs,
 # so nothing is installed in this stage.
-COPY --from=build /app/apps/web/.next/standalone ./
-COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build /app/apps/web/public ./apps/web/public
+COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=node:node /app/apps/web/public ./apps/web/public
+
+# Next writes its ISR/prerender cache here at runtime, and the server runs as
+# `node`. The directory does not exist in the standalone output, and a copy
+# landing root-owned leaves `node` unable to create it — every render then logs
+# "Failed to update prerender cache … EACCES" and nothing is ever cached. The
+# pages still serve, so this only shows up as log noise and repeated work.
+RUN mkdir -p apps/web/.next/cache && chown node:node apps/web/.next/cache
 
 USER node
 EXPOSE 3000
