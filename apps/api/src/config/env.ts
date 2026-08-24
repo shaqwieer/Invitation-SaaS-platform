@@ -25,8 +25,26 @@ const envSchema = z
     PUBLIC_WEB_URL: z.string().url().default('http://localhost:3000'),
 
     SMS_PROVIDER: z.enum(['console']).default('console'),
-    PAYMENT_PROVIDER: z.enum(['stub']).default('stub'),
+    PAYMENT_PROVIDER: z.enum(['stub', 'moyasar']).default('stub'),
+    /**
+     * The shared secret a gateway proves itself with.
+     *
+     * For the stub it keys an HMAC over the raw body. For Moyasar it is the
+     * «Secret Token» set on the webhook in their dashboard, which they echo
+     * inside the delivery. Either way it is the only thing standing between a
+     * stranger and a POST that marks orders paid — see the refinement below,
+     * which refuses to boot on Moyasar while it is still the placeholder.
+     */
     PAYMENT_WEBHOOK_SECRET: z.string().default('dev_webhook_secret'),
+
+    /** Moyasar's secret API key — `sk_test_…` or `sk_live_…`. Server-side only. */
+    MOYASAR_SECRET_KEY: z.string().optional(),
+    /**
+     * The publishable key (`pk_…`). Unused by the hosted-invoice flow this wires
+     * — Moyasar's own page collects the card — and kept so the pair lives in one
+     * place for the day the card form is embedded in our checkout instead.
+     */
+    MOYASAR_PUBLISHABLE_KEY: z.string().optional(),
 
     VAT_RATE: z.coerce.number().min(0).max(1).default(0.15),
     CURRENCY: z.string().length(3).default('SAR'),
@@ -54,6 +72,36 @@ const envSchema = z
         path: ['JWT_REFRESH_SECRET'],
         message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET',
       });
+    }
+
+    /*
+     * Moyasar's two hard requirements, checked at boot in every environment.
+     *
+     * Deliberately not gated on NODE_ENV. The webhook secret is what tells a
+     * real delivery from a stranger posting `{"type":"payment_paid"}` at
+     * `/api/webhooks/moyasar`, and the placeholder is published in this repo —
+     * a box that starts with `PAYMENT_PROVIDER=moyasar` and the default secret
+     * is one curl away from marking every order paid. Failing to boot is the
+     * only honest response to that, and it must not depend on someone having
+     * set NODE_ENV the way we assumed.
+     */
+    if (env.PAYMENT_PROVIDER === 'moyasar') {
+      if (!env.MOYASAR_SECRET_KEY?.startsWith('sk_')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['MOYASAR_SECRET_KEY'],
+          message: 'MOYASAR_SECRET_KEY is required and must start with sk_ when PAYMENT_PROVIDER=moyasar',
+        });
+      }
+
+      if (/dev|change_me|secret_here/i.test(env.PAYMENT_WEBHOOK_SECRET)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['PAYMENT_WEBHOOK_SECRET'],
+          message:
+            'PAYMENT_WEBHOOK_SECRET is still the placeholder — set it to the Secret Token on the Moyasar webhook',
+        });
+      }
     }
 
     if (env.NODE_ENV === 'production') {

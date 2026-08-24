@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { fetchInvitation } from '@/lib/api.server';
+import { fetchBranding, fetchInvitation } from '@/lib/api.server';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { InviteScreen } from './InviteScreen';
 import { InviteMissing } from './InviteMissing';
@@ -8,8 +8,8 @@ import { InviteMissing } from './InviteMissing';
  * The guest's invitation.
  *
  * Server-rendered, and outside the /[locale] segment: a guest opens a bare
- * da3wa.sa/invite/<token> link straight from WhatsApp, with no locale prefix to
- * carry. Language comes from ?lang= and otherwise defaults to Arabic.
+ * yahlainvite.com/invite/<token> link straight from WhatsApp, with no locale
+ * prefix to carry. Language comes from ?lang= and otherwise defaults to Arabic.
  *
  * Every render hits the API — never statically generated, never cached. The
  * page contains a named guest's answer, and one guest must never be served
@@ -64,5 +64,25 @@ export default async function InvitePage({ params, searchParams }: PageProps) {
     );
   }
 
-  return <InviteScreen invitation={invitation} locale={locale} token={params.token} />;
+  /*
+   * The header used to print a hardcoded "da3wa.sa". Reading the operator's own
+   * brand instead means a rename is a settings change rather than a deploy —
+   * and it is the one screen every guest sees, so it was the one place the old
+   * name survived longest.
+   *
+   * Fetched after the invitation, not alongside it: branding is decoration and
+   *  already falls back to the shipped identity, while a failed
+   * invitation fetch has its own error screen above. Racing them would only pay
+   * off on a page that is already waiting for the slower call.
+   */
+  const branding = await fetchBranding();
+
+  return (
+    <InviteScreen
+      invitation={invitation}
+      locale={locale}
+      token={params.token}
+      brandName={locale === 'ar' ? branding.brandNameAr : branding.brandNameEn}
+    />
+  );
 }

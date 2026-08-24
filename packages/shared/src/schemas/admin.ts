@@ -38,6 +38,15 @@ export const upsertPackageSchema = z.object({
   guestCap: z.number().int().min(1).max(10_000),
   /** Integer halalas, like every amount in the system. */
   priceHalalas: z.number().int().min(0).max(10_000_000),
+  /**
+   * The struck-through «was» price. Null = not on offer.
+   *
+   * Not validated as greater than `priceHalalas`: an operator mid-edit who has
+   * typed the new price but not yet the old one would be blocked from saving,
+   * and the render already ignores a compare-at that is not strictly higher.
+   * Presentation-only, so a bad value costs a badge rather than money.
+   */
+  compareAtHalalas: z.number().int().min(0).max(10_000_000).nullish(),
   scannerSeats: z.number().int().min(1).max(20).default(1),
   featuresAr: z.array(z.string().trim().max(160)).max(12).default([]),
   featuresEn: z.array(z.string().trim().max(160)).max(12).default([]),
@@ -100,6 +109,61 @@ export const updateSettingsSchema = z.object({
   customDesignPriceHalalas: z.number().int().min(0).max(10_000_000).default(19_900),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+/**
+ * The three published documents.
+ *
+ * A fixed list rather than an operator-created one. These are the documents a
+ * paid service is expected to have, they are linked from the footer and the
+ * checkout by name, and letting an admin invent a fourth slug would mean a link
+ * in the payment flow that can point at nothing.
+ */
+export const LEGAL_SLUGS = ['terms', 'privacy', 'refund'] as const;
+export const legalSlugSchema = z.enum(LEGAL_SLUGS);
+export type LegalSlug = (typeof LEGAL_SLUGS)[number];
+
+export function isLegalSlug(value: string): value is LegalSlug {
+  return (LEGAL_SLUGS as readonly string[]).includes(value);
+}
+
+/**
+ * Editing a legal document.
+ *
+ * The body cap is generous on purpose — a privacy policy that satisfies the
+ * PDPL runs long, and a limit that truncates one is a limit that publishes a
+ * half-policy. The floor of 1 is what stops a stray save blanking the page.
+ */
+export const updateLegalDocumentSchema = z.object({
+  titleAr: z.string().trim().min(2).max(120),
+  titleEn: z.string().trim().min(2).max(120),
+  bodyAr: z.string().trim().min(1).max(40_000),
+  /** English may be left empty; the public page falls back to the Arabic. */
+  bodyEn: z.string().trim().max(40_000),
+  isPublished: z.boolean().default(true),
+});
+export type UpdateLegalDocumentInput = z.infer<typeof updateLegalDocumentSchema>;
+
+/** A document as the admin panel sees it — including unpublished drafts. */
+export interface AdminLegalDocument extends UpdateLegalDocumentInput {
+  slug: LegalSlug;
+  sortOrder: number;
+  updatedAt: string;
+}
+
+/** A document as a visitor sees it. Only ever a published one. */
+export interface PublicLegalDocument {
+  slug: LegalSlug;
+  title: string;
+  body: string;
+  /** ISO 8601, rendered as «آخر تحديث» at the foot of the page. */
+  updatedAt: string;
+}
+
+/** The footer's list: enough to render a link, without shipping three bodies. */
+export interface LegalDocumentLink {
+  slug: LegalSlug;
+  title: string;
+}
 
 /** What the public branding endpoint returns. Never includes the logo bytes. */
 export interface PublicBranding {

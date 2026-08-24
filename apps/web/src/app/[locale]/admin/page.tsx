@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   formatMoney,
   type AdminDesignRequestView,
+  type AdminLegalDocument,
   type PlatformStats,
   type PublicBranding,
 } from '@da3wa/shared';
@@ -12,12 +13,21 @@ import { useAuth } from '@/lib/auth';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { displayNumber } from '@/lib/format';
 import { AdminShell } from '@/components/AdminShell';
+import { LegalBody } from '@/components/LegalBody';
 import { EVENT_TYPES } from '@/lib/eventForm';
 import { apiUrl } from '@/lib/api';
 
 type T = ReturnType<typeof translator>;
 
-type Tab = 'users' | 'events' | 'designs' | 'packages' | 'templates' | 'orders' | 'branding';
+type Tab =
+  | 'users'
+  | 'events'
+  | 'designs'
+  | 'packages'
+  | 'templates'
+  | 'orders'
+  | 'branding'
+  | 'legal';
 const TABS: Tab[] = [
   'users',
   'events',
@@ -26,7 +36,17 @@ const TABS: Tab[] = [
   'templates',
   'orders',
   'branding',
+  'legal',
 ];
+
+/**
+ * Sections that fetch their own data instead of the generic table loader.
+ *
+ * Both are single records with bespoke editors rather than searchable lists, so
+ * running `load` for them would fire a request whose response shape does not fit
+ * `rows` — a wrong-shaped array rendered under the new heading.
+ */
+const SELF_LOADING: Tab[] = ['branding', 'legal'];
 
 /**
  * The design queue reads a differently-named endpoint and key.
@@ -80,6 +100,7 @@ interface AdminPackage {
   nameEn: string;
   guestCap: number;
   priceHalalas: number;
+  compareAtHalalas: number | null;
   scannerSeats: number;
   featuresAr: string[];
   featuresEn: string[];
@@ -163,8 +184,7 @@ export default function AdminPage() {
 
   const load = useCallback(async () => {
     if (user?.role !== 'ADMIN') return;
-    // Branding is a single record with its own editor, not a searchable table.
-    if (tab === 'branding') return;
+    if (SELF_LOADING.includes(tab)) return;
     const search = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
     const route = ENDPOINTS[tab] ?? { path: tab, key: tab };
     const res = await authFetch(`/api/admin/${route.path}${search}`);
@@ -332,6 +352,8 @@ export default function AdminPage() {
 
         {tab === 'branding' ? (
           <BrandingPanel t={t} locale={locale} authFetch={authFetch} onError={setError} />
+        ) : tab === 'legal' ? (
+          <LegalPanel t={t} locale={locale} authFetch={authFetch} onError={setError} />
         ) : tab === 'designs' ? (
           <DesignQueue
             requests={rows as AdminDesignRequestView[]}
@@ -880,6 +902,10 @@ function PackageCard({
     nameEn: row.nameEn,
     guestCap: String(row.guestCap),
     priceRiyals: (row.priceHalalas / 100).toFixed(2),
+    // Blank, not "0.00", when there is no offer: an empty box reads as «no
+    // offer», while 0.00 reads as a price of zero that someone forgot to fill.
+    compareAtRiyals:
+      row.compareAtHalalas === null ? '' : (row.compareAtHalalas / 100).toFixed(2),
     scannerSeats: String(row.scannerSeats),
     sortOrder: String(row.sortOrder),
     featuresAr: toLines(row.featuresAr),
@@ -906,6 +932,12 @@ function PackageCard({
       nameEn: draft.nameEn.trim(),
       guestCap: Math.max(1, Number(draft.guestCap) || 1),
       priceHalalas: Math.max(0, Math.round(Number(draft.priceRiyals) * 100)) || 0,
+      // Empty clears the offer. Number('') is 0, not NaN, so the blank has to be
+      // caught before the conversion or every save without an offer would store
+      // a compare-at of zero.
+      compareAtHalalas: draft.compareAtRiyals.trim()
+        ? Math.max(0, Math.round(Number(draft.compareAtRiyals) * 100)) || null
+        : null,
       scannerSeats: Math.max(1, Number(draft.scannerSeats) || 1),
       sortOrder: Math.max(0, Number(draft.sortOrder) || 0),
       featuresAr: fromLines(draft.featuresAr),
@@ -954,6 +986,17 @@ function PackageCard({
             dir="ltr"
             value={draft.priceRiyals}
             onChange={(e) => set('priceRiyals', e.target.value)}
+          />
+        </FormField>
+        <FormField label={t('admin.compareAtRiyals')} hint={t('admin.compareAtHint')}>
+          <PanelInput
+            type="number"
+            min={0}
+            step="0.01"
+            dir="ltr"
+            placeholder={t('admin.compareAtNone')}
+            value={draft.compareAtRiyals}
+            onChange={(e) => set('compareAtRiyals', e.target.value)}
           />
         </FormField>
         <FormField label={t('admin.scannerSeats')}>
@@ -1779,6 +1822,305 @@ function BrandingPanel({
         <p className="rounded-control bg-surface-muted px-3.5 py-2.5 font-latin text-[12px] text-ink-light">
           {form.brandNameAr} · {form.brandNameEn}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Named in the checkout's consent line, so the API refuses to unpublish them.
+ * Mirrored here only to explain the greyed checkbox — the API is the authority.
+ */
+const CHECKOUT_LINKED_SLUGS: string[] = ['terms', 'refund'];
+
+/**
+ * The terms, privacy and refund pages.
+ *
+ * Three documents behind one selector rather than three panels stacked down the
+ * screen: the bodies run to thousands of words, and a page that scrolls past two
+ * whole policies to reach the third is a page nobody edits twice.
+ *
+ * Each document saves on its own. A single "save everything" button across three
+ * legal texts is a button that republishes two documents an operator did not
+ * touch — and republishing is exactly what `updatedAt` records and the page
+ * prints as «آخر تحديث».
+ */
+function LegalPanel({
+  t,
+  locale,
+  authFetch,
+  onError,
+}: {
+  t: ReturnType<typeof translator>;
+  locale: AppLocale;
+  authFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  onError: (message: string | null) => void;
+}) {
+  const [documents, setDocuments] = useState<AdminLegalDocument[] | null>(null);
+  const [draft, setDraft] = useState<AdminLegalDocument | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [preview, setPreview] = useState(false);
+
+  useEffect(() => {
+    void authFetch('/api/admin/legal')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (!body) return;
+        const docs = body.documents as AdminLegalDocument[];
+        setDocuments(docs);
+        // First in the shipped order — the terms.
+        setDraft(docs[0] ? { ...docs[0] } : null);
+      })
+      .catch(() => undefined);
+  }, [authFetch]);
+
+  /**
+   * Switching documents re-seeds the form from the server copy.
+   *
+   * Done in the click handler rather than an effect keyed on `documents`. That
+   * effect looked equivalent and was not: a save refreshes `documents`, so it
+   * would fire on every save and immediately clear the «حُفظ المستند»
+   * confirmation and drop the operator out of preview — the save would look
+   * like it had done nothing.
+   */
+  const select = (doc: AdminLegalDocument) => {
+    setDraft({ ...doc });
+    setSaved(false);
+    setPreview(false);
+    onError(null);
+  };
+
+  if (!documents || !draft) {
+    return (
+      <div className="rounded-card border border-line-soft bg-surface p-8 text-body text-ink-muted">
+        {t('auth.loading')}
+      </div>
+    );
+  }
+
+  const set = <K extends keyof AdminLegalDocument>(key: K, value: AdminLegalDocument[K]) =>
+    setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
+
+  const save = async () => {
+    // The API rejects this too; catching it here spares an operator a generic
+    // «تعذّر التحديث» for something as specific as an empty document.
+    if (!draft.bodyAr.trim()) return onError(t('legal.emptyBody'));
+
+    setBusy(true);
+    onError(null);
+
+    const res = await authFetch(`/api/admin/legal/${draft.slug}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        titleAr: draft.titleAr,
+        titleEn: draft.titleEn,
+        bodyAr: draft.bodyAr,
+        bodyEn: draft.bodyEn,
+        isPublished: draft.isPublished,
+      }),
+    });
+    setBusy(false);
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      return onError(
+        payload?.error?.code === 'LEGAL_MUST_STAY_PUBLISHED'
+          ? t('legal.mustStayPublished')
+          : t('admin.updateFailed'),
+      );
+    }
+
+    const { document } = (await res.json()) as { document: AdminLegalDocument };
+    setDocuments((prev) =>
+      (prev ?? []).map((row) => (row.slug === document.slug ? document : row)),
+    );
+    // From the response, not from what was typed: this is what refreshes the
+    // «آخر تحديث» line to the moment the save actually landed.
+    setDraft({ ...document });
+    setSaved(true);
+  };
+
+  const field =
+    'w-full rounded-control border border-line-strong bg-surface px-3.5 py-3 text-[15px] outline-none focus:border-emerald-700';
+  const updated = new Intl.DateTimeFormat(locale === 'ar' ? 'ar-SA-u-nu-arab' : 'en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Riyadh',
+  }).format(new Date(draft.updatedAt));
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-h3">{t('legal.adminTitle')}</h2>
+        <p className="text-body text-ink-muted">{t('legal.adminBody')}</p>
+      </div>
+
+      {/* Says out loud that the shipped text is a draft. An operator who never
+          opens this panel still ships something reasonable; one who does should
+          not assume it has been through a lawyer. */}
+      <p className="rounded-card border border-[#E8DDBF] bg-[#FBF6E9] px-5 py-4 text-[13px] leading-relaxed text-[#6B5B2E]">
+        {t('legal.reviewNotice')}
+      </p>
+
+      <div className="flex flex-wrap gap-2.5">
+        {documents.map((doc) => (
+          <button
+            key={doc.slug}
+            onClick={() => select(doc)}
+            className={`flex items-center gap-2.5 rounded-control border px-4 py-2.5 text-[13.5px] font-medium ${
+              doc.slug === draft.slug
+                ? 'border-emerald-700 bg-emerald-100 text-status-confirmedFg'
+                : 'border-line-strong text-ink-muted'
+            }`}
+          >
+            {t(`legal.slug.${doc.slug}`)}
+            {!doc.isPublished && (
+              <span className="rounded-chip bg-status-notSentBg px-2 py-0.5 text-[11.5px] text-status-notSentFg">
+                {t('legal.draft')}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-5 rounded-card border border-line-soft bg-surface p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-[12.5px] text-ink-light">
+            {t('legal.lastUpdated')} · {updated}
+          </span>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setPreview((prev) => !prev)}
+              className="rounded-[9px] border border-line-strong px-3 py-1.5 text-[12.5px] font-medium"
+            >
+              {preview ? t('legal.edit') : t('legal.preview')}
+            </button>
+            {/* Only offered for a published document — a link to a page the API
+                answers 404 for is worse than no link. */}
+            {draft.isPublished && (
+              <a
+                href={`/${locale}/legal/${draft.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-[9px] border border-line-strong px-3 py-1.5 text-[12.5px] font-medium"
+              >
+                {t('legal.view')}
+              </a>
+            )}
+          </div>
+        </div>
+
+        {preview ? (
+          /* The same renderer the public page uses, so what is checked here is
+             what ships — a bespoke preview would be a second implementation
+             free to disagree with the first. */
+          <div className="rounded-card border border-line-soft bg-surface-muted p-6">
+            <h3 className="text-h2">{locale === 'ar' ? draft.titleAr : draft.titleEn}</h3>
+            <div className="mt-6">
+              <LegalBody
+                body={
+                  locale === 'ar'
+                    ? draft.bodyAr
+                    : draft.bodyEn.trim()
+                      ? draft.bodyEn
+                      : draft.bodyAr
+                }
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-2">
+                <span className="text-[13.5px] font-medium text-[#3D4741]">
+                  {t('legal.titleAr')}
+                </span>
+                <input
+                  className={field}
+                  value={draft.titleAr}
+                  onChange={(e) => set('titleAr', e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-2">
+                <span className="text-[13.5px] font-medium text-[#3D4741]">
+                  {t('legal.titleEn')}
+                </span>
+                <input
+                  dir="ltr"
+                  className={field}
+                  value={draft.titleEn}
+                  onChange={(e) => set('titleEn', e.target.value)}
+                />
+              </label>
+            </div>
+
+            <p className="rounded-control bg-surface-muted px-4 py-3 text-[12.5px] leading-relaxed text-ink-light">
+              {t('legal.formatHint')}
+            </p>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-[13.5px] font-medium text-[#3D4741]">{t('legal.bodyAr')}</span>
+              <textarea
+                rows={22}
+                className={`${field} font-mono text-[13.5px] leading-relaxed`}
+                value={draft.bodyAr}
+                onChange={(e) => set('bodyAr', e.target.value)}
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-[13.5px] font-medium text-[#3D4741]">{t('legal.bodyEn')}</span>
+              <textarea
+                dir="ltr"
+                rows={22}
+                className={`${field} font-mono text-[13.5px] leading-relaxed`}
+                value={draft.bodyEn}
+                onChange={(e) => set('bodyEn', e.target.value)}
+              />
+              <span className="text-[12.5px] text-ink-light">{t('legal.bodyEnHint')}</span>
+            </label>
+
+            {/* Disabled rather than left to fail on save: the rule is an
+                invariant of the payment flow, and an operator should meet it as
+                a greyed box with a reason, not as an error after typing. */}
+            <label
+              className={`flex items-start gap-3 border-t border-line-soft pt-5 ${
+                CHECKOUT_LINKED_SLUGS.includes(draft.slug) ? '' : 'cursor-pointer'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={draft.isPublished}
+                disabled={CHECKOUT_LINKED_SLUGS.includes(draft.slug)}
+                onChange={(e) => set('isPublished', e.target.checked)}
+                className="mt-1 h-4 w-4 accent-emerald-700 disabled:opacity-50"
+              />
+              <span className="flex flex-col gap-1">
+                <span className="text-[13.5px] font-medium text-[#3D4741]">
+                  {t('legal.published')}
+                </span>
+                <span className="text-[12.5px] text-ink-light">
+                  {CHECKOUT_LINKED_SLUGS.includes(draft.slug)
+                    ? t('legal.mustStayPublished')
+                    : t('legal.publishedHint')}
+                </span>
+              </span>
+            </label>
+          </>
+        )}
+
+        <div className="flex items-center justify-end gap-3 border-t border-line-soft pt-5">
+          {saved && <span className="text-[13px] text-status-confirmedFg">{t('legal.saved')}</span>}
+          <button
+            disabled={busy}
+            onClick={() => void save()}
+            className="rounded-control bg-emerald-700 px-5 py-3 text-sm font-semibold text-[#F7F5EF] disabled:opacity-60"
+          >
+            {t('common.save')}
+          </button>
+        </div>
       </div>
     </div>
   );

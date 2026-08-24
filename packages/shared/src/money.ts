@@ -103,6 +103,35 @@ export function formatMoney(halalas: Halalas, options: FormatMoneyOptions = {}):
   return digits === 'arabic' ? `${amount} ر.س` : `${amount} SAR`;
 }
 
+/**
+ * How much a compare-at price is marked down, as a whole percentage.
+ *
+ * Returns `null` whenever there is nothing honest to show — no compare-at, or
+ * one that is not strictly above the price. That single return covers the
+ * unset case, the equal case and the typo where the two are swapped, so callers
+ * need one check (`percent !== null`) rather than three, and no screen can end
+ * up rendering «خصم ٠٪» or a negative badge.
+ *
+ * Rounded to whole percent — a marketing figure sitting next to both real
+ * prices, not a number anyone reconciles a receipt against. A markdown too
+ * small to round to 1% (249 from 250 is 0.4%) also returns `null`: it is real
+ * but not worth a badge, and it is the one input that would otherwise print the
+ * «خصم ٠٪» this function promises never to produce.
+ *
+ * `discountPercent(12900, 25000)` → 48
+ */
+export function discountPercent(
+  priceHalalas: Halalas,
+  compareAtHalalas: Halalas | null | undefined,
+): number | null {
+  if (compareAtHalalas === null || compareAtHalalas === undefined) return null;
+  if (compareAtHalalas <= priceHalalas) return null;
+  if (compareAtHalalas <= 0) return null;
+
+  const percent = Math.round(((compareAtHalalas - priceHalalas) / compareAtHalalas) * 100);
+  return percent > 0 ? percent : null;
+}
+
 /** Order numbers look like DW-2026-4821 in the design's success screen. */
 export function formatOrderNumber(year: number, sequence: number): string {
   return `DW-${year}-${String(sequence).padStart(4, '0')}`;

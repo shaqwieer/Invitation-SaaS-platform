@@ -29,7 +29,7 @@ import {
   type ToastMessage,
 } from '@/components/ui';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
-import { EVENT_TYPES, EVENT_STATUSES, toLocalInput, toIso } from '@/lib/eventForm';
+import { EVENT_TYPES, EVENT_STATUSES, normaliseUrl, toLocalInput, toIso } from '@/lib/eventForm';
 
 export default function EventSettingsPage() {
   const params = useParams<{ locale: string; eventId: string }>();
@@ -184,9 +184,11 @@ export default function EventSettingsPage() {
           />
         </Field>
 
-        <Field label={t('event.venueMapUrl')}>
+        <Field label={t('event.venueMapUrl')} hint={t('event.venueMapUrlHint')}>
           <Input
             dir="ltr"
+            inputMode="url"
+            placeholder="https://maps.app.goo.gl/…"
             value={form.venueMapUrl ?? ''}
             onChange={(e) => set('venueMapUrl', e.target.value || null)}
           />
@@ -216,7 +218,7 @@ export default function EventSettingsPage() {
                   partnerName: form.partnerName,
                   venueName: form.venueName,
                   venueAddress: form.venueAddress,
-                  venueMapUrl: form.venueMapUrl,
+                  venueMapUrl: normaliseUrl(form.venueMapUrl),
                   rsvpDeadline: form.rsvpDeadline,
                   defaultCompanionsAllowed: form.defaultCompanionsAllowed,
                 },

@@ -20,11 +20,23 @@ export function InviteScreen({
   invitation,
   locale,
   token,
+  brandName,
   demo = false,
 }: {
   invitation: PublicInvitation;
   locale: AppLocale;
   token: string;
+  /**
+   * The operator's brand, printed in the header above the invitation.
+   *
+   * A prop rather than a context read: this screen renders outside the app shell
+   * that provides BrandContext, and it is the guest-facing page — so the name is
+   * resolved once on the server and handed down, not fetched again on a phone.
+   *
+   * Optional so the landing page's sample can render without a branding fetch;
+   * the fallback is the shipped Arabic name.
+   */
+  brandName?: string;
   /**
    * Sample mode for the landing page's «شاهد نموذج دعوة».
    *
@@ -132,7 +144,9 @@ export function InviteScreen({
       <header className="flex items-center justify-between border-b border-[#E2DFD6] bg-line-soft px-4 py-2.5">
         <span className="w-6" />
         <div className="flex flex-col items-center gap-0.5">
-          <span className="font-latin text-[12.5px] font-medium text-[#3D4741]">da3wa.sa</span>
+          <span className="text-[12.5px] font-medium text-[#3D4741]">
+            {brandName ?? 'يا هلا'}
+          </span>
           <span className="text-[10.5px] text-[#9AA49E]">
             {demo ? t('demo.subtitle') : t('invite.personalInvitation')}
           </span>

@@ -271,6 +271,7 @@ export async function payOrder(
   user: User,
   orderId: string,
   method: PaymentMethodValue,
+  locale: 'ar' | 'en' = 'ar',
 ): Promise<PayResult> {
   const order = await prisma.order.findFirst({
     where: { id: orderId, userId: user.id },
@@ -285,14 +286,53 @@ export async function payOrder(
   }
 
   const provider = paymentProvider();
+
+  /*
+   * A second click must not open a second payable invoice.
+   *
+   * Harmless with the stub, which settles in place. With a real gateway it
+   * leaves two live payment links against one order, and a host who pays the
+   * one still open in another tab has paid twice for the same event. Re-reading
+   * the existing one is the whole fix.
+   */
+  const pending = await prisma.payment.findFirst({
+    where: { orderId: order.id, provider: provider.name, status: 'PENDING' },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (pending?.providerPaymentId && provider.fetchPayment) {
+    const existing = await provider.fetchPayment(pending.providerPaymentId);
+
+    // Paid while we were not looking — settle rather than charge again.
+    if (existing?.status === 'SUCCEEDED') {
+      await settlePayment(pending.providerPaymentId, 'SUCCEEDED');
+      return { order: await getOrder(user, order.id), redirectUrl: null };
+    }
+
+    if (existing?.redirectUrl) {
+      await prisma.order.update({ where: { id: order.id }, data: { method } });
+      return { order: await getOrder(user, order.id), redirectUrl: existing.redirectUrl };
+    }
+  }
+
   const intent = await provider.createPayment({
     orderId: order.id,
     orderNumber: order.orderNumber,
     amountHalalas: order.totalHalalas,
     currency: order.currency,
     method,
-    returnUrl: `${env().PUBLIC_WEB_URL}/checkout/${order.id}`,
+    /*
+     * The locale segment is not optional. The web checkout lives at
+     * `/{locale}/checkout/:id`, so a gateway returning the payer to
+     * `/checkout/:id` drops them on a 404 having just paid. `?verify=1` is what
+     * tells that page to ask the gateway directly rather than trust that the
+     * webhook has already landed.
+     */
+    returnUrl: `${env().PUBLIC_WEB_URL}/${locale}/checkout/${order.id}?verify=1`,
     customer: { name: user.name, phone: user.phone },
+    description: order.package
+      ? `${order.package.nameAr} — ${order.orderNumber}`
+      : `طلب ${order.orderNumber}`,
   });
 
   await prisma.payment.create({
@@ -321,16 +361,65 @@ export async function payOrder(
 }
 
 /**
+ * Ask the gateway what happened, and settle on the answer.
+ *
+ * Called when the payer lands back on the checkout from a hosted payment page.
+ * Webhooks are the authoritative path and this does not replace them — it
+ * closes the window where the payer has arrived and the delivery has not, and
+ * the larger hole where nobody configured the webhook at all. In both cases the
+ * checkout would otherwise show a pay button for an order already paid, which
+ * is how a customer pays twice.
+ *
+ * Settles through `settlePayment` like everything else, so a webhook that lands
+ * a second later changes nothing.
+ */
+export async function verifyOrderPayment(user: User, orderId: string): Promise<OrderView> {
+  const order = await prisma.order.findFirst({ where: { id: orderId, userId: user.id } });
+  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+
+  const provider = paymentProvider();
+
+  // Nothing to ask about: already resolved, never sent to a gateway, or a
+  // provider that settles in place and has no endpoint to query.
+  if (order.status !== 'PENDING' || !order.providerRef || !provider.fetchPayment) {
+    return getOrder(user, orderId);
+  }
+
+  const fetched = await provider.fetchPayment(order.providerRef);
+
+  /*
+   * Only a payment that actually happened is settled here.
+   *
+   * A hosted invoice that is expired, cancelled or has a declined attempt
+   * against it reads as FAILED, and settling that would mark the *order* FAILED
+   * — after which `payOrder` refuses it as ORDER_NOT_PAYABLE and the host can
+   * never buy that package again. Abandoning a checkout and coming back the
+   * next day is enough to reach it, because the invoice expires in 24 hours.
+   *
+   * Leaving the order PENDING loses nothing: the invoice dies on its own, and
+   * the next «ادفع» opens a fresh one. A genuinely terminal outcome still
+   * arrives through the webhook.
+   */
+  if (fetched && (fetched.status === 'SUCCEEDED' || fetched.status === 'REFUNDED')) {
+    await settlePayment(order.providerRef, fetched.status);
+  }
+
+  return getOrder(user, orderId);
+}
+
+/**
  * Apply a settled payment.
  *
- * The single place an order becomes PAID, called by both the synchronous stub
- * and the webhook. Idempotent by design: a gateway that retries a delivery, or
- * delivers out of order, must not double-activate an event or fire the
- * new-order notification twice.
+ * The single place an order becomes PAID, called by the synchronous stub, the
+ * webhook, and the return-from-gateway check. Idempotent by design: a gateway
+ * that retries a delivery, or delivers out of order, must not double-activate
+ * an event or fire the new-order notification twice.
  */
 export async function settlePayment(
   providerPaymentId: string,
   status: 'SUCCEEDED' | 'FAILED' | 'REFUNDED' | 'PENDING',
+  /** What the gateway says was actually moved, when it says so. */
+  settledHalalas?: number | null,
 ): Promise<void> {
   const payment = await prisma.payment.findFirst({
     where: { providerPaymentId },
@@ -343,6 +432,29 @@ export async function settlePayment(
   }
 
   const { order } = payment;
+
+  /*
+   * A partial capture would otherwise settle as if it were the full amount.
+   *
+   * Not a refusal — the gateway is the authority on what moved, and blocking a
+   * settled payment over a mismatch would leave a paying host with a dead
+   * event. It is logged loudly so a short payment is discoverable rather than
+   * silently accepted as full.
+   */
+  if (
+    typeof settledHalalas === 'number' &&
+    settledHalalas !== payment.amountHalalas &&
+    status === 'SUCCEEDED'
+  ) {
+    logger.error(
+      {
+        orderNumber: order.orderNumber,
+        expectedHalalas: payment.amountHalalas,
+        settledHalalas,
+      },
+      'settled amount does not match the order total',
+    );
+  }
 
   if (status === 'PENDING') return;
 

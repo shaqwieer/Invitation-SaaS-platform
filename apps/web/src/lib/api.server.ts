@@ -1,6 +1,12 @@
 import 'server-only';
 import { headers } from 'next/headers';
-import type { PublicBatch, PublicBranding, PublicInvitation } from '@da3wa/shared';
+import type {
+  LegalDocumentLink,
+  PublicBatch,
+  PublicBranding,
+  PublicInvitation,
+  PublicLegalDocument,
+} from '@da3wa/shared';
 import { ApiError } from './api';
 
 /**
@@ -60,11 +66,15 @@ function forwardedClientHeaders(): Record<string, string> {
  * momentarily unavailable must not blank the page it sits on.
  */
 export const FALLBACK_BRANDING: PublicBranding = {
-  brandNameAr: 'دعوة',
-  brandNameEn: 'Da3wa',
+  // The live identity, matching yahlainvite.com. This is only the fallback for
+  // an unreachable API — the operator's own values in PlatformSettings win — but
+  // it is what a visitor sees during an API blip, so it must not be a name the
+  // platform no longer goes by.
+  brandNameAr: 'يا هلا',
+  brandNameEn: 'Yahla',
   taglineAr: 'منصة سعودية للدعوات الرقمية وإدارة حضور المناسبات.',
   taglineEn: 'A Saudi platform for digital invitations and event attendance.',
-  logoMark: 'د',
+  logoMark: 'ي',
   logoUrl: null,
   customDesignPriceHalalas: 19_900,
 };
@@ -90,6 +100,8 @@ export interface CataloguePackage {
   nameEn: string;
   guestCap: number;
   priceHalalas: number;
+  /** The struck-through «was» price; null when the package is not on offer. */
+  compareAtHalalas: number | null;
   scannerSeats: number;
   featuresAr: string[];
   featuresEn: string[];
@@ -149,6 +161,56 @@ export async function fetchTemplates(): Promise<CatalogueTemplate[]> {
     return body.templates ?? [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * The published terms, privacy and refund documents.
+ *
+ * `no-store`, like branding and for the same lesson: these are edited from the
+ * admin panel, and a cached copy means an operator saves a corrected refund
+ * clause, reloads the page, and reads the old one — indistinguishable from the
+ * save having failed. A policy page is operator-edited content, not a price
+ * list, so it gets branding's treatment rather than the catalogue's.
+ *
+ * An empty list on failure hides the footer column rather than breaking the
+ * landing page it sits at the bottom of.
+ */
+export async function fetchLegalLinks(locale: string): Promise<LegalDocumentLink[]> {
+  try {
+    const res = await fetch(`${serverApiBase()}/api/legal?locale=${encodeURIComponent(locale)}`, {
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { documents?: LegalDocumentLink[] };
+    return body.documents ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * One document, for its own page.
+ *
+ * Returns null for both an unknown slug and an unpublished draft — the API
+ * answers 404 to each, and the page turns that into `notFound()`. Distinguishing
+ * them would tell a visitor which drafts exist.
+ */
+export async function fetchLegalDocument(
+  slug: string,
+  locale: string,
+): Promise<PublicLegalDocument | null> {
+  try {
+    const res = await fetch(
+      `${serverApiBase()}/api/legal/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`,
+      { cache: 'no-store', headers: { accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { document?: PublicLegalDocument };
+    return body.document ?? null;
+  } catch {
+    return null;
   }
 }
 

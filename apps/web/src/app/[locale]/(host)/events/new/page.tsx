@@ -12,10 +12,10 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { formatMoney } from '@da3wa/shared';
 import { useAuth } from '@/lib/auth';
 import { useEvents } from '@/components/EventContext';
 import { CardPreview } from '@/components/CardPreview';
+import { PackagePrice } from '@/components/PackagePrice';
 import {
   Button,
   Card,
@@ -35,7 +35,7 @@ import {
   type Template,
 } from '@/components/CardDesign';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
-import { EVENT_TYPES, toIso, toLocalInput } from '@/lib/eventForm';
+import { EVENT_TYPES, normaliseUrl, toIso, toLocalInput } from '@/lib/eventForm';
 import { apiUrl } from '@/lib/api';
 import { displayNumber } from '@/lib/format';
 
@@ -45,6 +45,7 @@ interface Package {
   nameEn: string;
   guestCap: number;
   priceHalalas: number;
+  compareAtHalalas: number | null;
   scannerSeats: number;
   featuresAr: string[];
   featuresEn: string[];
@@ -83,6 +84,16 @@ export default function NewEventPage() {
   const [partnerName, setPartnerName] = useState('');
   const [venueName, setVenueName] = useState('');
   const [venueAddress, setVenueAddress] = useState('');
+  /*
+   * The map link, collected here rather than only in event settings.
+   *
+   * Its absence from this step was the whole bug behind «لما اضغط على رابط
+   * الخرائط مايظهر لي الموقع»: an event created in the wizard had no way to
+   * carry one, so the invitation's maps button fell back to *searching* for the
+   * venue name — and «القصر» matches a dozen halls in Jeddah alone. The host had
+   * pasted a link; there was simply nowhere for it to go.
+   */
+  const [venueMapUrl, setVenueMapUrl] = useState('');
   const [cardColor, setCardColor] = useState('#0E5A45');
   const [cardTitleFont, setCardTitleFont] = useState('amiri');
   const [cardDesignMode, setCardDesignMode] = useState<DesignMode>('TEMPLATE');
@@ -144,6 +155,7 @@ export default function NewEventPage() {
           partnerName: partnerName || null,
           venueName: venueName || null,
           venueAddress: venueAddress || null,
+          venueMapUrl: normaliseUrl(venueMapUrl),
           cardColor,
           cardTitleFont,
           cardDesignMode,
@@ -296,6 +308,16 @@ export default function NewEventPage() {
                 <Input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} />
               </Field>
 
+              <Field label={t('event.venueMapUrl')} hint={t('event.venueMapUrlHint')}>
+                <Input
+                  dir="ltr"
+                  inputMode="url"
+                  placeholder="https://maps.app.goo.gl/…"
+                  value={venueMapUrl}
+                  onChange={(e) => setVenueMapUrl(e.target.value)}
+                />
+              </Field>
+
               <Field label={t('event.defaultCompanions')}>
                 <Input
                   type="number"
@@ -378,14 +400,13 @@ export default function NewEventPage() {
                     <span className="text-[15px] font-semibold">
                       {locale === 'ar' ? pkg.nameAr : pkg.nameEn}
                     </span>
-                    <span className="text-[26px] font-semibold leading-none">
-                      {formatMoney(pkg.priceHalalas, {
-                        digits: locale === 'ar' ? 'arabic' : 'western',
-                      })}
-                      <span className="ms-1.5 text-[13px] font-normal text-ink-light">
-                        {t('checkout.currency')}
-                      </span>
-                    </span>
+                    <PackagePrice
+                      priceHalalas={pkg.priceHalalas}
+                      compareAtHalalas={pkg.compareAtHalalas}
+                      locale={locale}
+                      currencyLabel={t('checkout.currency')}
+                      discountLabel={(percent) => t('land.discountOff', { percent })}
+                    />
                     <span className="text-[13px] text-ink-muted">
                       {t('event.packageGuests', { count: n(pkg.guestCap) })}
                     </span>

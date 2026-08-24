@@ -29,6 +29,7 @@ export function createCatalogueRouter(): Router {
             nameEn: true,
             guestCap: true,
             priceHalalas: true,
+            compareAtHalalas: true,
             scannerSeats: true,
             featuresAr: true,
             featuresEn: true,

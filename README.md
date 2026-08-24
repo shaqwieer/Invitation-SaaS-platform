@@ -501,8 +501,40 @@ Admin — `ADMIN` role only:
 | `POST`          | `/api/admin/design-requests/:requestId/artwork`   | Deliver the finished file              |
 | `GET`           | `/api/admin/orders`                               |                                        |
 | `GET` `PUT`     | `/api/admin/settings` · `/settings/logo`          | Branding, and the custom-design price  |
+| `GET` `PUT`     | `/api/admin/legal` · `/legal/:slug`               | Terms, privacy, refunds; drafts included |
 
 Web: `/<locale>/checkout/:orderId` and `/<locale>/admin`.
+
+### The legal pages
+
+The three documents a paid Saudi service publishes — الشروط والأحكام, سياسة الخصوصية,
+سياسة الاسترجاع — are rows in `LegalDocument`, edited from the admin panel's «الصفحات
+القانونية» tab and served at `/<locale>/legal/:slug`. Public reads are
+`GET /api/legal` (the footer's list) and `GET /api/legal/:slug`, both unauthenticated:
+this is what a visitor reads *before* deciding to register, and the checkout links to two
+of them in front of the pay button.
+
+Three decisions worth knowing:
+
+- **Seeded on read, not by `db:seed`.** `getLegalDocuments` runs one
+  `createMany({ skipDuplicates: true })` when a document is missing, so a box that ran
+  `db:deploy` without a seed still serves its own footer links. `skipDuplicates` rather than
+  a find-then-upsert because two visitors opening the footer at the same instant on a fresh
+  deploy race, and the upsert loses — it answered one of them a 500.
+- **The body is not HTML and not Markdown.** Blank line separates paragraphs, `## ` opens a
+  section, `- ` is a list item, parsed into React elements by `LegalBody`. Admin-authored
+  text plus `dangerouslySetInnerHTML` would be stored XSS by design; three block types do
+  not need a parser, which is why `apps/web` still has no Markdown dependency.
+- **Read with `no-store`.** Same lesson as branding: cache it and an operator corrects a
+  refund clause, reloads, reads the old one, and cannot tell the save from a failure.
+
+An empty English body falls back to the Arabic, because writing the Arabic and leaving the
+English for later is the normal case, not the exception — and a title over a blank page
+reads as a broken site rather than an untranslated one.
+
+**The shipped text is a first draft**, written to describe what this product actually does.
+It has not been through a lawyer, and it contains a deliberate blank — `[بريد الدعم]` —
+that an operator must replace before trading on it.
 
 ### The three routes to a card
 
@@ -553,6 +585,62 @@ Three properties carry this area:
 Settlement runs through one function whether the stub answers synchronously or a real
 gateway calls back later, so the path that matters in production is the one exercised in
 development.
+
+#### Moyasar · ميسر
+
+`PAYMENT_PROVIDER=moyasar` swaps the stub for
+[Moyasar](https://docs.moyasar.com/), wired through their **Invoices** API rather than the
+Payments API: `POST /v1/invoices` returns a hosted checkout page we redirect the payer to,
+so no card number ever reaches this server.
+
+```bash
+PAYMENT_PROVIDER=moyasar
+MOYASAR_SECRET_KEY=sk_live_…          # or sk_test_… ; server-side only
+PAYMENT_WEBHOOK_SECRET=…              # the Secret Token on the dashboard webhook
+```
+
+Then add a webhook in the Moyasar dashboard pointing at
+`https://<your-host>/api/webhooks/moyasar`, with that same Secret Token. **Give each
+deployment its own token** — a shared one means either box can settle the other's orders.
+
+Five things this integration gets right that are easy to get wrong:
+
+- **No arithmetic on the amount.** Moyasar takes the smallest currency unit, which for SAR
+  is the halala, and every amount in this system is already integer halalas. A stray ×100
+  would multiply every charge on the platform by a hundred, silently.
+- **Settlement is keyed on `data.invoice_id`, not `data.id`.** What `createPayment` stores
+  is the *invoice* id; the id inside a webhook's `data` is the *payment* id. They are
+  different objects, and confusing them means every real payment logs as "settlement for an
+  unknown payment" while the order sits unpaid.
+- **`authorized` and `verified` do not settle.** `authorized` means the amount is held, not
+  taken — on an account set to manual capture it arrives before any money moves, and
+  treating it as payment activates a host's event against funds never captured. `verified`
+  is the card-verification step. Both map to PENDING.
+- **The return URL carries the locale.** The web checkout lives at
+  `/{locale}/checkout/:id`, so a gateway returning the payer to `/checkout/:id` drops them
+  on a 404 having just paid. The locale is an enum in the pay request, never a URL — the
+  server builds the address, so nothing a client sends can redirect a paying customer.
+- **The payer's return is verified, not assumed.** `?verify=1` on the return URL makes the
+  checkout call `POST /api/orders/:id/verify`, which reads the invoice back from Moyasar and
+  settles through the same `settlePayment`. Without it a payer who beats the webhook home
+  sees a pay button for an order they have already paid — which is how someone pays twice.
+  For the same reason a second «ادفع» re-reads the open invoice instead of creating a
+  second payable one. That check settles **only** a success or a refund: an expired or
+  abandoned invoice reads as failed, and settling that would mark the order FAILED and
+  refuse it forever after — which abandoning a checkout for a day would be enough to
+  trigger, since invoices expire in 24 hours.
+
+The API **refuses to boot** on `moyasar` while `PAYMENT_WEBHOOK_SECRET` is still a
+placeholder, or without an `sk_`-prefixed key — deliberately in every environment, not just
+production. That secret is the only thing between a stranger and a POST at a necessarily
+public endpoint that marks orders paid, and the placeholder is published in this file.
+A delivery whose `live` flag disagrees with the key's mode is recorded and ignored, so a
+test event can never settle a live order.
+
+Two things it does **not** do. `BANK_TRANSFER` is not a Moyasar method — the checkout
+promises manual verification for it, and sending it to an invoice contradicts that. And the
+method a host picks in our checkout is recorded intent only: Moyasar's hosted page asks
+again, and the payer's answer there is the one that counts.
 
 ### What the admin panel deliberately cannot do
 

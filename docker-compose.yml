@@ -42,6 +42,17 @@ services:
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
       SMS_PROVIDER: ${SMS_PROVIDER:-console}
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-stub}
+      # Passed through without defaults on purpose. `env.ts` refuses to boot on
+      # PAYMENT_PROVIDER=moyasar unless the key is real and the webhook secret is
+      # not the placeholder; a default here would paper over exactly the mistake
+      # that check exists to catch. Before this block the container simply never
+      # saw the keys, so switching PAYMENT_PROVIDER in .env failed at startup
+      # with a message about a key the operator had already set.
+      MOYASAR_SECRET_KEY: ${MOYASAR_SECRET_KEY:-}
+      MOYASAR_PUBLISHABLE_KEY: ${MOYASAR_PUBLISHABLE_KEY:-}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-dev_webhook_secret}
+      VAT_RATE: ${VAT_RATE:-0.15}
+      CURRENCY: ${CURRENCY:-SAR}
     ports:
       - '4000:4000'
     volumes:

@@ -77,7 +77,7 @@ export function createWebhookRouter(): Router {
         throw err;
       }
 
-      await settlePayment(envelope.providerPaymentId, envelope.status);
+      await settlePayment(envelope.providerPaymentId, envelope.status, envelope.amountHalalas);
 
       await prisma.webhookEvent.updateMany({
         where: { provider: providerName, providerEventId: envelope.providerEventId },

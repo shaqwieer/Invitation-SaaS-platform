@@ -36,6 +36,17 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
 export const payOrderSchema = z.object({
   method: paymentMethodSchema,
+  /**
+   * Which language to bring the payer back into.
+   *
+   * A hosted gateway sends the payer to its own page and then returns them to a
+   * URL we hand it, and the web app's checkout lives under `/ar/...` or
+   * `/en/...` — a return URL without the segment is a 404 at the end of a
+   * payment. It is an enum rather than a URL for the obvious reason: the server
+   * builds the address, so nothing a client sends can redirect a paying
+   * customer somewhere else.
+   */
+  locale: z.enum(['ar', 'en']).default('ar'),
 });
 export type PayOrderInput = z.infer<typeof payOrderSchema>;
 

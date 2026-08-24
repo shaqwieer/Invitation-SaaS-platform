@@ -219,6 +219,18 @@ model Package {
   /// Maximum guests an event on this package may hold. Enforced, not decorative.
   guestCap       Int
   priceHalalas   Int
+  /// The «was» price, struck through beside the real one — ٢٥٠ ← ١٢٩.
+  ///
+  /// Presentation only. Nothing charges against it: an order's line items are
+  /// built from `priceHalalas`, so a compare-at that is wrong costs a badge, not
+  /// money. Null means the package is simply not on offer, which is why this is
+  /// nullable rather than defaulting to the price — a default of `priceHalalas`
+  /// would make «0% off» the resting state of every package.
+  ///
+  /// Only rendered when it is strictly greater than `priceHalalas`; see
+  /// `discountPercent` in packages/shared. A value below the price is a typo,
+  /// and showing «-20%» on a price rise is worse than showing nothing.
+  compareAtHalalas Int?
   /// How many concurrent scanner sessions the package allows.
   scannerSeats   Int      @default(1)
   featuresAr     String[]
@@ -725,13 +737,16 @@ model PlatformSettings {
   /// fact that nothing else ever writes an id here.
   id String @id @default("singleton")
 
-  brandNameAr String @default("دعوة")
-  brandNameEn String @default("Da3wa")
+  /// The shipped identity a brand-new deployment starts with. An operator who
+  /// has already set their own name keeps it — a changed default only applies to
+  /// rows created after it, and there is exactly one row here.
+  brandNameAr String @default("يا هلا")
+  brandNameEn String @default("Yahla")
   taglineAr   String @default("منصة سعودية للدعوات الرقمية وإدارة حضور المناسبات.")
   taglineEn   String @default("A Saudi platform for digital invitations and event attendance.")
 
   /// The letter drawn in the emerald square when no logo image is uploaded.
-  logoMark String @default("د")
+  logoMark String @default("ي")
 
   /// What a custom design costs before the operator quotes a specific job.
   ///
@@ -751,6 +766,45 @@ model PlatformSettings {
   logoMime String?
   /// Bumped on every logo write so caches can be told to refetch.
   logoVersion Int @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Legal pages ─────────────────────────────────────────────────────────────
+
+/// The three documents a paid Saudi service has to publish: الشروط والأحكام,
+/// سياسة الخصوصية, سياسة الاسترجاع.
+///
+/// Its own table rather than six more columns on PlatformSettings, for one
+/// concrete reason: a policy page conventionally prints «آخر تحديث», and a
+/// per-document `updatedAt` is the only way to print an honest one. Sharing the
+/// settings row would date the refund policy from the day someone changed the
+/// logo.
+///
+/// The slug is the primary key. There are exactly three of them, the web routes
+/// are `/[locale]/legal/[slug]`, and a surrogate id would only add a lookup
+/// between the URL and the row.
+model LegalDocument {
+  /// One of LEGAL_SLUGS — `terms`, `privacy`, `refund`.
+  slug String @id
+
+  titleAr String
+  titleEn String
+
+  /// The document itself, as plain text with a very small amount of structure:
+  /// blank lines separate paragraphs, `## ` opens a section, `- ` is a list
+  /// item. Not HTML and not Markdown-with-a-library — this is operator-authored
+  /// text rendered into React elements, so there is no path from the admin
+  /// panel to a script tag on the public site.
+  bodyAr String
+  bodyEn String
+
+  /// An operator drafting a rewrite should not have it half-live. Unpublished
+  /// documents 404 publicly and stay visible in the admin panel.
+  isPublished Boolean @default(true)
+
+  /// Ordering in the footer, so «الشروط» need not sort after «الاسترجاع».
+  sortOrder Int @default(0)
 
   updatedAt DateTime @updatedAt
 }

@@ -43,11 +43,32 @@ export default function CheckoutPage() {
     if (ready && !user) router.replace(`/${locale}/login`);
   }, [ready, user, router, locale]);
 
+  /**
+   * Load the order — and, when returning from a hosted payment page, ask the
+   * gateway directly before drawing anything.
+   *
+   * The `?verify=1` comes from the return URL the API handed the gateway. A
+   * plain read would race the webhook: the payer arrives, the delivery has not
+   * landed yet, and the screen offers to charge them again for an order they
+   * have already paid. Only on that one navigation — every other view of this
+   * page is a read.
+   */
   useEffect(() => {
     if (!user) return;
-    void authFetch(`/api/orders/${params.orderId}`).then(async (res) => {
+
+    const returning = new URLSearchParams(window.location.search).has('verify');
+    const path = returning
+      ? `/api/orders/${params.orderId}/verify`
+      : `/api/orders/${params.orderId}`;
+
+    void authFetch(path, returning ? { method: 'POST' } : undefined).then(async (res) => {
       if (!res.ok) return setMissing(true);
       setOrder((await res.json()).order);
+
+      // Drop the flag so a reload or a back-button visit is an ordinary read.
+      if (returning) {
+        window.history.replaceState(null, '', `${window.location.pathname}`);
+      }
     });
   }, [user, authFetch, params.orderId]);
 
@@ -58,7 +79,11 @@ export default function CheckoutPage() {
     try {
       const res = await authFetch(`/api/orders/${params.orderId}/pay`, {
         method: 'POST',
-        body: JSON.stringify({ method }),
+        // The locale rides along so the gateway returns the payer to this
+        // page and not to a `/checkout/:id` that has no locale segment and
+        // therefore does not exist. The server builds the URL; this only says
+        // which of two languages.
+        body: JSON.stringify({ method, locale }),
       });
 
       const body = await res.json().catch(() => null);
@@ -239,13 +264,60 @@ export default function CheckoutPage() {
                 : t('checkout.pay', { amount: money(order.totalHalalas) })}
             </button>
 
+            {/* This line already *named* two published documents; now it
+                reaches them. A consent sentence in a payment flow that a buyer
+                cannot click through to is a sentence agreeing to something
+                unread. */}
             <span className="text-center text-[12.5px] leading-relaxed text-ink-faint">
-              {t('checkout.terms')}
+              <TermsNotice t={t} locale={locale} />
             </span>
           </section>
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * «بالمتابعة أنت توافق على شروط الاستخدام وسياسة الاسترجاع» — with the two
+ * documents linked.
+ *
+ * `t()` leaves an unsupplied `{placeholder}` in the string verbatim, so the
+ * sentence comes back with its two slots intact and is split on them here.
+ * Doing it this way rather than concatenating three fragments keeps the whole
+ * sentence in the message catalogue, where a translator can reorder it — the
+ * Arabic and the English do not put the documents in the same place.
+ *
+ * Opened in a new tab: sending a buyer away from a half-finished payment to
+ * read a policy is how an order gets abandoned.
+ */
+function TermsNotice({ t, locale }: { t: ReturnType<typeof translator>; locale: AppLocale }) {
+  const labels: Record<string, { slug: string; text: string }> = {
+    '{terms}': { slug: 'terms', text: t('legal.termsShort') },
+    '{refund}': { slug: 'refund', text: t('legal.refundShort') },
+  };
+
+  return (
+    <>
+      {t('checkout.terms')
+        .split(/(\{terms\}|\{refund\})/)
+        .map((part, index) => {
+          const link = labels[part];
+          if (!link) return <span key={index}>{part}</span>;
+
+          return (
+            <a
+              key={index}
+              href={`/${locale}/legal/${link.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-ink-muted underline underline-offset-2 hover:text-ink"
+            >
+              {link.text}
+            </a>
+          );
+        })}
+    </>
   );
 }
 

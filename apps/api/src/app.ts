@@ -19,6 +19,7 @@ import { createPublicBatchRouter } from './modules/batches/batch.routes.js';
 import { createCatalogueRouter } from './modules/catalogue/catalogue.routes.js';
 import { createTemplatePreviewRouter } from './modules/catalogue/template.routes.js';
 import { createSettingsRouter } from './modules/settings/settings.routes.js';
+import { createLegalRouter } from './modules/legal/legal.routes.js';
 import { createEventCardRouter } from './modules/events/card.routes.js';
 import { createScanRouter } from './modules/scan/scan.routes.js';
 import { createOrdersRouter } from './modules/orders/orders.routes.js';
@@ -129,6 +130,9 @@ export function createApp(options: CreateAppOptions = {}): Express {
   // Branding. Public because the landing page, login, invitations and the door
   // scanner all render the logo, and most of those have no account.
   app.use('/api/settings', createSettingsRouter());
+  // The terms, privacy and refund pages. Public because they are what a visitor
+  // reads *before* deciding to register, and the checkout links to two of them.
+  app.use('/api/legal', createLegalRouter());
   // Public — guests reach this with no account, holding only their token.
   app.use('/api/invite', createInviteRouter(limiters));
   // Also public, and also token-only: a delegate distributing a block of

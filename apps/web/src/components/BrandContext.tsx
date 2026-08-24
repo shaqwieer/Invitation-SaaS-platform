@@ -14,11 +14,14 @@ import type { PublicBranding } from '@da3wa/shared';
  * the provider still draws something rather than throwing.
  */
 const FALLBACK: PublicBranding = {
-  brandNameAr: 'دعوة',
-  brandNameEn: 'Da3wa',
+  // Kept in step with FALLBACK_BRANDING in lib/api.server.ts — the same shipped
+  // identity, one for the server fetch and one for a component rendered outside
+  // the provider.
+  brandNameAr: 'يا هلا',
+  brandNameEn: 'Yahla',
   taglineAr: 'منصة سعودية للدعوات الرقمية وإدارة حضور المناسبات.',
   taglineEn: 'A Saudi platform for digital invitations and event attendance.',
-  logoMark: 'د',
+  logoMark: 'ي',
   logoUrl: null,
   customDesignPriceHalalas: 19_900,
 };

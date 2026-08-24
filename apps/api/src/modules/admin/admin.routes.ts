@@ -3,14 +3,18 @@ import {
   adminListQuerySchema,
   adminUpdateEventSchema,
   designRequestStatusSchema,
+  isLegalSlug,
   updateDesignRequestSchema,
+  updateLegalDocumentSchema,
   updateUserSchema,
   upsertPackageSchema,
   upsertTemplateSchema,
   type AdminListQuery,
   type AdminUpdateEventInput,
+  type LegalSlug,
   type PlatformStats,
   type UpdateDesignRequestInput,
+  type UpdateLegalDocumentInput,
   type UpdateUserInput,
   type UpsertPackageInput,
   type UpsertTemplateInput,
@@ -30,6 +34,11 @@ import {
   updateSettings,
 } from '../settings/settings.service.js';
 import * as design from '../design/design.service.js';
+import {
+  listAdminLegalDocuments,
+  toAdminLegalDocument,
+  updateLegalDocument,
+} from '../legal/legal.service.js';
 
 /**
  * Logos are small by nature. The cap is what stops someone pasting a 20 MB
@@ -55,6 +64,9 @@ const cardUpload = multer({
     cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype));
   },
 });
+
+/** Documents the checkout links to by name, and so cannot be unpublished. */
+const CHECKOUT_LINKED: LegalSlug[] = ['terms', 'refund'];
 
 /**
  * The operator panel.
@@ -134,6 +146,63 @@ export function createAdminRouter(): Router {
       });
 
       res.json({ branding: toPublicBranding(settings) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ── Legal pages ───────────────────────────────────────────────────────── */
+
+  /**
+   * Unlike the public route this returns drafts too — an unpublished document
+   * that vanished from the panel would be one an operator could never finish.
+   */
+  router.get('/legal', async (_req, res, next) => {
+    try {
+      res.json({ documents: await listAdminLegalDocuments() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/legal/:slug', validate(updateLegalDocumentSchema), async (req, res, next) => {
+    try {
+      const slug = req.params.slug!;
+      if (!isLegalSlug(slug)) {
+        throw new BadRequestError('Unknown legal document', 'LEGAL_SLUG_UNKNOWN');
+      }
+
+      const input = req.body as UpdateLegalDocumentInput;
+
+      /*
+       * The consent line above the pay button names these two and links to
+       * them. The footer renders from the published list and so heals itself
+       * when a document is taken down; that line does not, and a buyer whose
+       * only route to what they are agreeing to is a 404 has not been shown
+       * the terms at all. The privacy policy is not linked from a payment
+       * flow, so it may be taken down while it is rewritten.
+       */
+      if (!input.isPublished && CHECKOUT_LINKED.includes(slug)) {
+        throw new BadRequestError(
+          'The terms and the refund policy are linked from the checkout and must stay published',
+          'LEGAL_MUST_STAY_PUBLISHED',
+        );
+      }
+
+      const document = await updateLegalDocument(slug, input);
+
+      // Audited like every other admin mutation, and with more reason than
+      // most: this is the text the platform is held to, so "who changed the
+      // refund terms, and when" has to be answerable after the fact.
+      await audit({
+        action: 'admin.legal_update',
+        actorId: req.user!.id,
+        targetType: 'LegalDocument',
+        targetId: document.slug,
+        meta: { isPublished: document.isPublished, bytesAr: document.bodyAr.length },
+      });
+
+      res.json({ document: toAdminLegalDocument(document) });
     } catch (err) {
       next(err);
     }

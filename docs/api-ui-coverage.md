@@ -289,3 +289,52 @@ longer TTL.
 which works behind nginx — where `/api` is proxied — and 404s everywhere else,
 including local development. That bug was live until it was caught by loading the
 path from the web origin rather than trusting that the markup looked right.
+
+---
+
+## The legal pages are operator-editable (2026-08-07)
+
+The three documents a paid Saudi service publishes — الشروط والأحكام,
+سياسة الخصوصية, سياسة الاسترجاع — did not exist. The checkout's consent line
+named two of them in prose, which meant a buyer agreed above the pay button to
+terms that were nowhere on the site. They are now rows in `LegalDocument`, edited
+from **Admin → الصفحات القانونية** and served at `/<locale>/legal/:slug`.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/legal` | Published titles and slugs — the footer's list |
+| `GET /api/legal/:slug` | One document; `?locale=en` for the English |
+| `GET /api/admin/legal` | All three including unpublished drafts |
+| `PUT /api/admin/legal/:slug` | Titles, bodies, publication state |
+
+Four decisions worth keeping:
+
+**Seeded on read, not by `db:seed`.** `getLegalDocuments` issues one
+`createMany({ skipDuplicates: true })` when a document is missing, so a box that
+ran `db:deploy` without a seed still serves its own footer links. It replaced a
+find-then-upsert, which lost the race when two visitors opened the footer at the
+same instant on a fresh database and answered one of them a 500.
+
+**The body is neither HTML nor Markdown.** A blank line separates paragraphs,
+`## ` opens a section, `- ` is a list item; `LegalBody` parses that into React
+elements. Operator-authored text through `dangerouslySetInnerHTML` would be
+stored XSS by design, and three block types do not justify a parser — `apps/web`
+still has no Markdown dependency.
+
+**Read with `no-store`**, for the reason the branding section above records: a
+cached policy means an operator corrects a refund clause, reloads, reads the old
+one, and cannot tell the save from a failure.
+
+**الشروط and الاسترجاع cannot be unpublished.** The footer renders from the
+published list and so heals itself; the consent line above the pay button names
+those two and does not, so taking one down would leave a buyer's only route to
+what they are agreeing to at a 404. سياسة الخصوصية has no such link and may be
+taken down while it is rewritten.
+
+An empty English body falls back to the Arabic — writing the Arabic and leaving
+the English for later is the normal case, and a title over a blank page reads as
+a broken site rather than an untranslated one.
+
+**The shipped text is a first draft.** It describes what this product actually
+does, it has not been through a lawyer, and it carries a deliberate blank —
+`[بريد الدعم]` — that an operator must replace.

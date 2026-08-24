@@ -55,12 +55,30 @@ export function createOrdersRouter(): Router {
 
   router.post('/:orderId/pay', validate(payOrderSchema), async (req, res, next) => {
     try {
+      const body = req.body as PayOrderInput;
       const result = await orders.payOrder(
         req.user!,
         req.params.orderId!,
-        (req.body as PayOrderInput).method,
+        body.method,
+        body.locale,
       );
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * "I have just come back from the gateway — did it go through?"
+   *
+   * A POST rather than a GET because it can settle an order, activate an event
+   * and send the operator a notification. Owner-scoped like every other order
+   * route, and a no-op unless the order is still pending against a real
+   * provider reference, so calling it twice costs one lookup.
+   */
+  router.post('/:orderId/verify', async (req, res, next) => {
+    try {
+      res.json({ order: await orders.verifyOrderPayment(req.user!, req.params.orderId!) });
     } catch (err) {
       next(err);
     }

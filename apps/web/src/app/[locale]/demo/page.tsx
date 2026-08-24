@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { PublicInvitation } from '@da3wa/shared';
-import { fetchTemplates } from '@/lib/api.server';
+import { fetchBranding, fetchTemplates } from '@/lib/api.server';
 import { apiUrl } from '@/lib/api';
 import { DEFAULT_LOCALE, isLocale, t, type AppLocale } from '@/lib/i18n';
 import { InviteScreen } from '@/app/invite/[token]/InviteScreen';
@@ -98,7 +98,7 @@ export default async function DemoPage({ params, searchParams }: PageProps) {
 
   // A real template from the catalogue, so the sample shows the operator's own
   // artwork. Falls back to the plain coloured card when none is uploaded yet.
-  const templates = await fetchTemplates();
+  const [templates, branding] = await Promise.all([fetchTemplates(), fetchBranding()]);
   const artwork = templates.find((template) => template.previewImageUrl)?.previewImageUrl ?? null;
 
   return (
@@ -106,6 +106,7 @@ export default async function DemoPage({ params, searchParams }: PageProps) {
       invitation={sampleInvitation(locale, apiUrl(artwork))}
       locale={locale}
       token="demo"
+      brandName={locale === 'ar' ? branding.brandNameAr : branding.brandNameEn}
       demo
     />
   );

@@ -326,7 +326,7 @@ Sign out, then sign in as **`+966500000009`** / `Demo@1234`. You land on
 not run weddings, so it has no host dashboard to go to. Try forcing
 `/ar/dashboard`: it bounces you straight back.
 
-Six tabs. **المستخدمون** has promote/demote and enable/disable.
+Eight tabs. **المستخدمون** has promote/demote and enable/disable.
 **المناسبات** lets you change an event's status and grant a guest-cap override in
 place. **الباقات** and **القوالب** edit prices, caps and availability.
 
@@ -347,7 +347,34 @@ letter.
 
 Put your original name and letter back when you're done — nothing else does.
 
-### 8.2 Two things that should refuse you
+### 8.2 Edit a legal page
+
+**الصفحات القانونية**. Three documents behind one selector — الشروط والأحكام,
+سياسة الخصوصية, سياسة الاسترجاع — each with an Arabic and an English title and
+body, and each saved on its own.
+
+Pick **سياسة الاسترجاع** and change a line in **النص (عربي)**. Press **معاينة**:
+the preview uses the same renderer the public page does, so blank lines become
+paragraphs, `## ` becomes a section heading and `- ` becomes a bullet. Save, then
+**عرض الصفحة** — the change is live at `/ar/legal/refund`, and «آخر تحديث» at the
+top now reads today.
+
+Open `/en/legal/refund`. If you left **النص (إنجليزي)** empty, the English page
+shows the Arabic text rather than a blank page under a title.
+
+Two refusals worth trying here:
+
+- The **منشور** checkbox is greyed out on الشروط and الاسترجاع. Both are named in
+  the consent line above the pay button at checkout, so taking one down would
+  point a buyer at a 404. سياسة الخصوصية _can_ be unpublished — nothing in the
+  payment flow links to it — and while it is, it disappears from the footer and
+  its page answers «غير موجود».
+- Clear **النص (عربي)** entirely and save: «لا يمكن حفظ نص عربي فارغ».
+
+The footer of the landing page lists whatever is currently published, so it never
+carries a link to a page that would 404.
+
+### 8.3 Two things that should refuse you
 
 - Try to demote or disable **your own** admin account. It refuses with
   «لا يمكنك تعطيل حسابك أو إنزال صلاحيتك» rather than locking you out.

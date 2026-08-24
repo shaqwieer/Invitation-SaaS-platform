@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { PaymentMethodValue } from '@da3wa/shared';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
+import { MoyasarPaymentProvider } from './moyasar.js';
 
 /**
  * Provider-agnostic payments.
@@ -21,6 +22,8 @@ export interface CreatePaymentInput {
   /** Where the payer comes back to once the gateway is done with them. */
   returnUrl: string;
   customer: { name: string; phone: string };
+  /** Shown to the payer on the gateway's own page. Falls back to the number. */
+  description?: string;
 }
 
 export type PaymentOutcome = 'PENDING' | 'SUCCEEDED' | 'FAILED';
@@ -43,10 +46,32 @@ export interface WebhookEnvelope {
   orderId: string | null;
 }
 
+/** What the gateway says about a payment when we go and ask it directly. */
+export interface FetchedPayment {
+  status: PaymentOutcome | 'REFUNDED';
+  /** The hosted page, still usable while the payment is unpaid. */
+  redirectUrl: string | null;
+}
+
 export interface PaymentProvider {
   readonly name: string;
 
   createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult>;
+
+  /**
+   * Ask the gateway what actually happened, rather than waiting to be told.
+   *
+   * Optional, because a provider that settles synchronously has nothing to ask.
+   * For a redirect gateway it closes two holes that webhooks alone leave open:
+   *
+   *   - The payer returns from the hosted page before the webhook lands — or
+   *     before anyone has configured one — and the checkout would otherwise
+   *     show a pay button for an order that is already paid. That is how a
+   *     customer gets charged twice.
+   *   - A second click on «ادفع» would open a second invoice for the same
+   *     order, both payable. Re-reading the first one is what prevents it.
+   */
+  fetchPayment?(providerPaymentId: string): Promise<FetchedPayment | null>;
 
   /**
    * Verify the delivery came from the gateway.
@@ -133,6 +158,9 @@ export function paymentProvider(): PaymentProvider {
   if (instance) return instance;
 
   switch (env().PAYMENT_PROVIDER) {
+    case 'moyasar':
+      instance = new MoyasarPaymentProvider();
+      break;
     case 'stub':
     default:
       instance = new StubPaymentProvider();

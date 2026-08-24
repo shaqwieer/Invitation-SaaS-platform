@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeOrderTotals,
+  discountPercent,
   formatMoney,
   formatOrderNumber,
   halalasToSar,
@@ -101,5 +102,41 @@ describe('conversions and formatting', () => {
   it('formats order numbers the way the success screen shows them', () => {
     expect(formatOrderNumber(2026, 4821)).toBe('DW-2026-4821');
     expect(formatOrderNumber(2026, 7)).toBe('DW-2026-0007');
+  });
+
+  describe('discountPercent', () => {
+    it('reports the markdown off the compare-at price', () => {
+      // ٢٥٠ ← ١٢٩, the offer the badge exists for.
+      expect(discountPercent(sarToHalalas(129), sarToHalalas(250))).toBe(48);
+      expect(discountPercent(sarToHalalas(124), sarToHalalas(250))).toBe(50);
+    });
+
+    it('stays silent when there is no offer to report', () => {
+      expect(discountPercent(sarToHalalas(129), null)).toBeNull();
+      expect(discountPercent(sarToHalalas(129), undefined)).toBeNull();
+    });
+
+    it('refuses a compare-at that is not strictly above the price', () => {
+      // Equal is not an offer, and a lower «was» is a typo — either way the
+      // badge must not render rather than show ٠٪ or a negative.
+      expect(discountPercent(sarToHalalas(129), sarToHalalas(129))).toBeNull();
+      expect(discountPercent(sarToHalalas(250), sarToHalalas(129))).toBeNull();
+      expect(discountPercent(sarToHalalas(129), 0)).toBeNull();
+    });
+
+    it('rounds to whole percent', () => {
+      // 245 from 250 is exactly 2%; 200 from 249 rounds 19.67 up to 20.
+      expect(discountPercent(sarToHalalas(245), sarToHalalas(250))).toBe(2);
+      expect(discountPercent(sarToHalalas(200), sarToHalalas(249))).toBe(20);
+    });
+
+    it('withholds the badge for a markdown that would round to 0%', () => {
+      // 249 from 250 is 0.4% — real, but «خصم ٠٪» is worse than no badge.
+      expect(discountPercent(sarToHalalas(249), sarToHalalas(250))).toBeNull();
+    });
+
+    it('handles a free package without dividing by zero', () => {
+      expect(discountPercent(0, sarToHalalas(250))).toBe(100);
+    });
   });
 });

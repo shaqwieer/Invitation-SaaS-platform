@@ -1,9 +1,10 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { formatMoney, toArabicIndicDigits } from '@da3wa/shared';
-import { fetchBranding, fetchPackages } from '@/lib/api.server';
+import { toArabicIndicDigits } from '@da3wa/shared';
+import { fetchBranding, fetchLegalLinks, fetchPackages } from '@/lib/api.server';
 import { DemoInviteForm } from '@/components/DemoInviteForm';
 import { Logo } from '@/components/Logo';
+import { PackagePrice } from '@/components/PackagePrice';
 import { isLocale, t, type AppLocale } from '@/lib/i18n';
 
 /**
@@ -31,11 +32,14 @@ export default async function LandingPage({ params }: { params: { locale: string
   if (!isLocale(params.locale)) notFound();
   const locale: AppLocale = params.locale;
   const tr = (key: string, vars?: Record<string, string | number>) => t(locale, key, vars);
-  const digits = locale === 'ar' ? 'arabic' : 'western';
   const num = (value: number) =>
     locale === 'ar' ? toArabicIndicDigits(String(value)) : String(value);
 
-  const [packages, branding] = await Promise.all([fetchPackages(), fetchBranding()]);
+  const [packages, branding, legalLinks] = await Promise.all([
+    fetchPackages(),
+    fetchBranding(),
+    fetchLegalLinks(locale),
+  ]);
   const tagline = locale === 'ar' ? branding.taglineAr : branding.taglineEn;
   const other = locale === 'ar' ? 'en' : 'ar';
 
@@ -161,7 +165,7 @@ export default async function LandingPage({ params }: { params: { locale: string
             <div className="ms-auto w-[92%] rounded-[16px] rounded-se-[4px] bg-[#DCF8C6] px-3.5 py-2.5">
               <p className="text-[12.5px] leading-relaxed text-[#1C3329]">{tr('land.waMsg')}</p>
               <p dir="ltr" className="mt-1 font-latin text-[12px] text-[#0E5A45] underline">
-                da3wa.sa/i/f8k2n
+                yahlainvite.com/i/f8k2n
               </p>
             </div>
 
@@ -255,14 +259,14 @@ export default async function LandingPage({ params }: { params: { locale: string
                 </span>
               </div>
 
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-[30px] font-semibold leading-none">
-                  {formatMoney(pkg.priceHalalas, { digits })}
-                </span>
-                <span className="text-[13px] text-ink-light">
-                  {tr('checkout.currency')} {tr('land.perEvent')}
-                </span>
-              </div>
+              <PackagePrice
+                size="lg"
+                priceHalalas={pkg.priceHalalas}
+                compareAtHalalas={pkg.compareAtHalalas}
+                locale={locale}
+                currencyLabel={`${tr('checkout.currency')} ${tr('land.perEvent')}`}
+                discountLabel={(percent) => tr('land.discountOff', { percent })}
+              />
 
               <ul className="flex flex-1 flex-col gap-2 border-t border-line-soft pt-4">
                 {(locale === 'ar' ? pkg.featuresAr : pkg.featuresEn).map((feature) => (
@@ -353,6 +357,27 @@ export default async function LandingPage({ params }: { params: { locale: string
               {tr('nav.start')}
             </Link>
           </div>
+
+          {/* Rendered from what the API says is published, not from a hardcoded
+              list of three: an operator who unpublishes a document to rewrite it
+              should not leave a footer link pointing at a 404. The column
+              disappears entirely if none are published. */}
+          {legalLinks.length > 0 && (
+            <div className="flex flex-col gap-2.5">
+              <span className="text-[12.5px] font-medium text-ink-light">
+                {tr('land.footerLegal')}
+              </span>
+              {legalLinks.map((doc) => (
+                <Link
+                  key={doc.slug}
+                  href={`/${locale}/legal/${doc.slug}`}
+                  className="text-[13.5px] text-ink-muted hover:text-ink"
+                >
+                  {doc.title}
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </footer>
     </div>
