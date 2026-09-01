@@ -63,6 +63,7 @@ export default function CardPage() {
   const [font, setFont] = useState('amiri');
   const [templateId, setTemplateId] = useState<string>('');
   const [customUrl, setCustomUrl] = useState('');
+  const [details, setDetails] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [hasCardImage, setHasCardImage] = useState(false);
@@ -192,6 +193,7 @@ export default function CardPage() {
     setFont(current.cardTitleFont);
     setTemplateId(current.templateId ?? '');
     setCustomUrl(current.customCardUrl ?? '');
+    setDetails(current.cardDetails ?? '');
     setHasCardImage(current.hasCardImage);
     setCardVersion(current.cardImageVersion);
   }, [current, eventId]);
@@ -210,6 +212,11 @@ export default function CardPage() {
         // would recreate the ambiguity this screen exists to remove.
         templateId: mode === 'TEMPLATE' ? templateId || null : null,
         customCardUrl: mode === 'UPLOAD' ? customUrl || null : null,
+        // Kept whichever route is chosen: a host who typed what the card should
+        // say and then went to «تصميم خاص» has not withdrawn the wording, and
+        // clearing it here would lose it on a mode change they never connected
+        // to it.
+        cardDetails: details.trim() || null,
       }),
     });
     setBusy(false);
@@ -245,6 +252,8 @@ export default function CardPage() {
               templates={templates}
               templateId={templateId}
               onPick={setTemplateId}
+              details={details}
+              onDetails={setDetails}
               tailoring={tailoring}
               locale={locale}
               t={t}

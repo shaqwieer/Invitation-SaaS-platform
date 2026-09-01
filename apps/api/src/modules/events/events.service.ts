@@ -106,6 +106,7 @@ export async function createEvent(hostId: string, input: CreateEventInput, hostP
       cardColor: input.cardColor,
       cardTitleFont: input.cardTitleFont,
       customCardUrl: input.customCardUrl ?? null,
+      cardDetails: input.cardDetails ?? null,
       rsvpDeadline: input.rsvpDeadline ?? null,
       defaultCompanionsAllowed: input.defaultCompanionsAllowed,
       ...(input.whatsappTemplateAr ? { whatsappTemplateAr: input.whatsappTemplateAr } : {}),
@@ -120,7 +121,7 @@ export async function createEvent(hostId: string, input: CreateEventInput, hostP
   // nothing ever reach the operator's queue.
   if (event.cardDesignMode === 'TEMPLATE' && event.templateId && event.template) {
     try {
-      await ensureTemplateTailoring(event.id, event.template.nameAr, {
+      await ensureTemplateTailoring(event.id, event.template.nameAr, event.cardDetails, {
         id: hostId,
         phone: hostPhone,
       });
@@ -201,7 +202,7 @@ export async function updateEvent(
    */
   if (event.cardDesignMode === 'TEMPLATE' && event.templateId && event.template) {
     try {
-      await ensureTemplateTailoring(event.id, event.template.nameAr, {
+      await ensureTemplateTailoring(event.id, event.template.nameAr, event.cardDetails, {
         id: actorId,
         phone: actorPhone,
       });

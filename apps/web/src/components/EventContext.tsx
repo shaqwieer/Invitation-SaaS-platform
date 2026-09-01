@@ -42,6 +42,8 @@ export interface HostEvent {
   cardColor: string;
   cardTitleFont: string;
   customCardUrl: string | null;
+  /** «البيانات المطلوبة في الكرت» — the wording the operator draws onto it. */
+  cardDetails: string | null;
   /** Whether uploaded artwork exists; the bytes never travel in JSON. */
   hasCardImage: boolean;
   cardImageVersion: number;

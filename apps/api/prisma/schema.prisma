@@ -311,6 +311,14 @@ model Event {
   /// Set when the host uploaded their own artwork instead of picking a template.
   customCardUrl String?
 
+  /// «البيانات المطلوبة في الكرت» — what the host wants written on the card.
+  ///
+  /// A template pick is only half an instruction: the operator still has to know
+  /// whose names, which wording and which verse go on it. Typed once here, it
+  /// travels into the tailoring request's notes rather than into a WhatsApp
+  /// thread nobody can find three weeks later.
+  cardDetails String?
+
   /// Uploaded card artwork, stored as bytes like the platform logo.
   ///
   /// On disk it would need a volume the VPS deploy has to remember; in the row

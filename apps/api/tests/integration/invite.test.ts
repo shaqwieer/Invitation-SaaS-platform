@@ -295,6 +295,86 @@ describe('QR delivery', () => {
   });
 });
 
+/**
+ * The picture WhatsApp puts above the link.
+ *
+ * The whole point of the endpoint is that it can be reached with a token and
+ * nothing else — the sender's phone has no session and no event id — so the
+ * tests here are about what it may do while unauthenticated, and what it must
+ * not touch on the way.
+ */
+describe('GET /api/invite/:token/card', () => {
+  it('serves the uploaded artwork', async () => {
+    const bytes = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    await prisma.event.update({
+      where: { id: event.id },
+      data: {
+        cardDesignMode: 'UPLOAD',
+        cardImageData: bytes,
+        cardImageMime: 'image/png',
+        cardImageVersion: 1,
+      },
+    });
+
+    const res = await request(app).get(`/api/invite/${token}/card`).responseType('blob');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('image/png');
+    expect(Buffer.from(res.body as Buffer).equals(bytes)).toBe(true);
+  });
+
+  it('does not mark the invitation opened', async () => {
+    await prisma.event.update({
+      where: { id: event.id },
+      data: {
+        cardDesignMode: 'UPLOAD',
+        cardImageData: Buffer.from('89504e470d0a1a0a', 'hex'),
+        cardImageMime: 'image/png',
+        cardImageVersion: 1,
+      },
+    });
+
+    await request(app).get(`/api/invite/${token}/card`).responseType('blob');
+
+    // The preview is drawn on the *sender's* device before the message is even
+    // sent. Reusing the read path here would report every guest as having seen
+    // an invitation the host is still typing.
+    const invitation = await prisma.invitation.findUnique({ where: { token } });
+    const after = await prisma.guest.findUnique({ where: { id: guest.id } });
+
+    expect(invitation!.openedAt).toBeNull();
+    expect(after!.status).toBe('SENT');
+  });
+
+  it('redirects to the catalogue preview when the card is a template', async () => {
+    const template = await prisma.template.create({
+      data: {
+        key: `tpl-${Math.random().toString(36).slice(2, 8)}`,
+        nameAr: 'كلاسيكي ذهبي',
+        nameEn: 'Classic gold',
+        previewImageUrl: '/api/templates/preview-path',
+      },
+    });
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { cardDesignMode: 'TEMPLATE', templateId: template.id },
+    });
+
+    const res = await request(app).get(`/api/invite/${token}/card`).redirects(0);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/api/templates/preview-path');
+  });
+
+  it('404s for an artworkless event and for an unknown token alike', async () => {
+    const plain = await request(app).get(`/api/invite/${token}/card`);
+    const unknown = await request(app).get('/api/invite/nosuchtoken12/card');
+
+    expect(plain.status).toBe(404);
+    expect(unknown.status).toBe(404);
+  });
+});
+
 describe('enumeration resistance', () => {
   it('rate limits token lookups', async () => {
     const strict = createApp({ rateLimits: { inviteLookup: { windowMs: 60_000, limit: 3 } } });

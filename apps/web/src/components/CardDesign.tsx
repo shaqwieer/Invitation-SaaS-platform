@@ -15,7 +15,7 @@
  */
 
 import type { DesignRequestView } from '@da3wa/shared';
-import { Card, Field, Select } from '@/components/ui';
+import { Card, Field, Select, Textarea } from '@/components/ui';
 import { CARD_COLOURS, SWATCH_BORDER } from '@/lib/cardColour';
 import { apiUrl } from '@/lib/api';
 import type { AppLocale, translator } from '@/lib/i18n';
@@ -88,6 +88,8 @@ export function TemplateGallery({
   templates,
   templateId,
   onPick,
+  details = '',
+  onDetails,
   tailoring = null,
   bare = false,
   locale,
@@ -96,6 +98,9 @@ export function TemplateGallery({
   templates: Template[];
   templateId: string;
   onPick: (id: string) => void;
+  /** «البيانات المطلوبة في الكرت» — omitted when the caller cannot save it. */
+  details?: string;
+  onDetails?: (value: string) => void;
   tailoring?: DesignRequestView | null;
   /** Render without the Card shell, for a caller that already has one. */
   bare?: boolean;
@@ -149,6 +154,28 @@ export function TemplateGallery({
             );
           })}
         </div>
+      )}
+
+      {/*
+        What the operator is supposed to write on it.
+
+        Sits with the gallery rather than on a screen of its own because picking
+        a template and saying what it should say are one decision: the design is
+        adapted by hand afterwards, and a pick with no wording leaves the
+        operator guessing at the names, the date's phrasing and the verse. Free
+        text on purpose — every family words an invitation differently, and a
+        fixed set of boxes would be a form to fight rather than fill.
+      */}
+      {onDetails && (
+        <Field label={t('card.detailsLabel')} hint={t('card.detailsHint')}>
+          <Textarea
+            value={details}
+            onChange={(e) => onDetails(e.target.value)}
+            placeholder={t('card.detailsPlaceholder')}
+            maxLength={2000}
+            rows={5}
+          />
+        </Field>
       )}
 
       {/* What happens after the pick — the part a host cannot see for themselves. */}

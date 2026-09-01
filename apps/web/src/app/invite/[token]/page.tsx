@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { fetchBranding, fetchInvitation } from '@/lib/api.server';
+import { apiUrl } from '@/lib/api';
 import { DEFAULT_LOCALE, isLocale, translator, type AppLocale } from '@/lib/i18n';
 import { InviteScreen } from './InviteScreen';
 import { InviteMissing } from './InviteMissing';
@@ -23,13 +24,50 @@ interface PageProps {
   searchParams: { lang?: string };
 }
 
-export function generateMetadata({ searchParams }: PageProps): Metadata {
+/**
+ * What WhatsApp draws above the link.
+ *
+ * The host's ask — «الدعوة لما تترسل تظهر صورة كرت الدعوة وتحتها رابط الدعوة» —
+ * is exactly a link preview: WhatsApp renders `og:image` on top and the message
+ * carrying the URL underneath it. We never send the message ourselves (the
+ * whole product sends from the host's own number through `wa.me`), so the
+ * preview is the only way a picture can travel with the link.
+ *
+ * The image is addressed by token, `/api/invite/<token>/card`, because that is
+ * all this page holds — and resolving it through the API rather than fetching
+ * the invitation here keeps the sender's preview from stamping `openedAt` on a
+ * guest who has not seen anything yet.
+ *
+ * The card's artwork is shown; the guest's name still is not. The link is
+ * forwarded inside family group chats, and who was invited is the part that
+ * would leak — the wedding's own card is what every one of them is about to
+ * receive anyway.
+ */
+export function generateMetadata({ params, searchParams }: PageProps): Metadata {
   const locale = resolveLocale(searchParams.lang);
+  const title = locale === 'ar' ? 'دعوة خاصة' : 'Personal invitation';
+  const description =
+    locale === 'ar' ? 'افتح دعوتك وأكِّد حضورك' : 'Open your invitation and confirm your seat';
+  const image = apiUrl(`/api/invite/${encodeURIComponent(params.token)}/card`);
+
   return {
-    title: locale === 'ar' ? 'دعوة خاصة' : 'Personal invitation',
-    // The link gets forwarded inside family group chats; a preview naming the
-    // guest would leak who was invited to everyone in the thread.
+    title,
+    description,
     robots: { index: false, follow: false },
+    openGraph: {
+      type: 'website',
+      title,
+      description,
+      // Absent when the API origin is unknown; a preview with no picture is the
+      // old behaviour, not a broken page.
+      ...(image ? { images: [{ url: image, alt: title }] } : {}),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(image ? { images: [image] } : {}),
+    },
   };
 }
 

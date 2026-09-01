@@ -39,6 +39,8 @@ const eventCore = {
   cardColor: hexColour.default('#0E5A45'),
   cardTitleFont: z.enum(['amiri', 'plex-arabic']).default('amiri'),
   customCardUrl: z.string().url().max(500).nullish(),
+  /** Free text: the names, wording and details the host wants on the card. */
+  cardDetails: z.string().trim().max(2000, 'النص طويل جدًا').nullish(),
 
   rsvpDeadline: z.coerce.date().nullish(),
   defaultCompanionsAllowed: z.number().int().min(0).max(20).default(0),

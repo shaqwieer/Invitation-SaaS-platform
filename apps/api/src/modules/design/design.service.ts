@@ -139,12 +139,21 @@ export async function createRequest(
  * second one — the operator should draw the template the host settled on, not
  * every one they clicked through.
  *
+ * `cardDetails` — «البيانات التي أريدها في الكرت» — rides along in the same
+ * notes. A template name alone does not say whose names go on it or how the
+ * wording should read, and the host has already typed exactly that on the
+ * template screen; sending it anywhere else would mean the operator reading two
+ * places to draw one card. Because the row is keyed on the composed string,
+ * editing only the details still rewrites the open request rather than leaving
+ * the designer working from the previous version.
+ *
  * Never charged. This is the tailoring included in the package; the priced job
  * is `createRequest`'s CUSTOM.
  */
 export async function ensureTemplateTailoring(
   eventId: string,
   templateLabel: string,
+  cardDetails: string | null,
   actor: { id: string; phone: string },
 ): Promise<void> {
   const open = await prisma.customDesignRequest.findFirst({
@@ -155,7 +164,10 @@ export async function ensureTemplateTailoring(
     },
   });
 
-  const notes = `القالب المختار: ${templateLabel}`;
+  const wanted = cardDetails?.trim();
+  const notes = wanted
+    ? `القالب المختار: ${templateLabel}\n\nالبيانات المطلوبة في الكرت:\n${wanted}`
+    : `القالب المختار: ${templateLabel}`;
 
   if (open) {
     if (open.notes === notes) return;

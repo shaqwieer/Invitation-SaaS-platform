@@ -76,6 +76,49 @@ export function createInviteRouter(limiters: RateLimiters): Router {
     },
   );
 
+  /**
+   * The card picture, for WhatsApp's link preview.
+   *
+   * Named by the token rather than the event so the URL can be written into
+   * `og:image` from the invite page alone — the page has a token and nothing
+   * else, and asking the API for the event id first would mean marking the
+   * invitation opened before the guest has seen it.
+   *
+   * A template preview or a host's pasted URL is redirected to rather than
+   * proxied: those bytes are already served by a route that knows how to cache
+   * them, and copying them through here would put a third of a megabyte on the
+   * event loop for every preview drawn.
+   */
+  router.get(
+    '/:token/card',
+    limiters.inviteAsset,
+    validate(inviteTokenParamSchema, 'params'),
+    async (req, res, next) => {
+      try {
+        const artwork = await invite.cardArtworkFor(req.params.token!);
+
+        if (!artwork) {
+          res.status(404).json({ error: { code: 'NO_CARD', message: 'No card artwork' } });
+          return;
+        }
+
+        if (artwork.kind === 'url') {
+          res.redirect(302, artwork.url);
+          return;
+        }
+
+        res.setHeader('Content-Type', artwork.mime);
+        // Short and public: the artwork is the picture on an invitation every
+        // guest receives, not a secret — but it is replaced when the operator
+        // uploads the tailored version, and this URL carries no version to bust.
+        res.setHeader('Cache-Control', 'public, max-age=600');
+        res.send(Buffer.from(artwork.data));
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   /** The signed payload, for clients that render the QR themselves. */
   router.get(
     '/:token/qr',

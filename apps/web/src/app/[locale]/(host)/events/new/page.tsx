@@ -98,6 +98,7 @@ export default function NewEventPage() {
   const [cardTitleFont, setCardTitleFont] = useState('amiri');
   const [cardDesignMode, setCardDesignMode] = useState<DesignMode>('TEMPLATE');
   const [templateId, setTemplateId] = useState('');
+  const [cardDetails, setCardDetails] = useState('');
   const [defaultCompanions, setDefaultCompanions] = useState(0);
 
   // One call feeds both steps — /api/catalogue has always returned the
@@ -162,6 +163,7 @@ export default function NewEventPage() {
           // '' is not a valid id — the schema's `.min(1)` would reject it, so an
           // unmade choice has to travel as null.
           templateId: cardDesignMode === 'TEMPLATE' ? templateId || null : null,
+          cardDetails: cardDetails.trim() || null,
           defaultCompanionsAllowed: defaultCompanions,
         }),
       });
@@ -350,6 +352,8 @@ export default function NewEventPage() {
                   templates={templates}
                   templateId={templateId}
                   onPick={setTemplateId}
+                  details={cardDetails}
+                  onDetails={setCardDetails}
                   bare
                   locale={locale}
                   t={t}

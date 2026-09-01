@@ -35,7 +35,16 @@ type LoadedInvitation = Invitation & {
  * request with nothing delivered yet falls back to the plain coloured card, not
  * to a template the host never picked.
  */
-function resolveArtwork(event: LoadedInvitation['event']): string | null {
+/**
+ * Only the fields the rule reads, so a caller that has no business loading a
+ * three-megabyte `cardImageData` column can satisfy it with a narrow select.
+ */
+type ArtworkSource = Pick<
+  Event,
+  'id' | 'cardDesignMode' | 'customCardUrl' | 'cardImageMime' | 'cardImageVersion'
+> & { template: Pick<Template, 'previewImageUrl'> | null };
+
+function resolveArtwork(event: ArtworkSource): string | null {
   const uploaded = event.cardImageMime
     ? `/api/events/${event.id}/card?v=${event.cardImageVersion}`
     : null;
@@ -120,6 +129,66 @@ function toPublic(invitation: LoadedInvitation): PublicInvitation {
       eventStatus: event.status,
     }),
   };
+}
+
+/**
+ * The picture on this invitation, resolved from a token — and nothing else.
+ *
+ * Exists so WhatsApp can draw a link preview: the host taps `wa.me/…`, their
+ * phone fetches the invite page, reads `og:image`, and shows the card above the
+ * link they are about to send. That is the whole feature — «تظهر صورة كرت
+ * الدعوة وتحتها رابط الدعوة» — and it needs a URL that names the artwork
+ * without a session and without the event id, which nobody holding an invite
+ * link has.
+ *
+ * Deliberately *not* `viewInvitation`: that stamps `openedAt` and advances the
+ * guest to OPENED. A preview is drawn on the sender's device before the message
+ * is even sent, so reusing the read path would mark every invitation "seen" by
+ * the host's own phone and empty the one column that tells them who has
+ * actually looked.
+ *
+ * The bytes are fetched in a second query rather than selected up front,
+ * because most events resolve to a catalogue preview and would otherwise pay
+ * for a megabyte column nobody reads.
+ */
+export type InviteArtwork =
+  | { kind: 'bytes'; data: Uint8Array; mime: string }
+  | { kind: 'url'; url: string };
+
+export async function cardArtworkFor(token: string): Promise<InviteArtwork | null> {
+  const invitation = await prisma.invitation.findUnique({
+    where: { token },
+    select: {
+      event: {
+        select: {
+          id: true,
+          cardDesignMode: true,
+          customCardUrl: true,
+          cardImageMime: true,
+          cardImageVersion: true,
+          template: { select: { previewImageUrl: true } },
+        },
+      },
+    },
+  });
+
+  // The same silence as `load`: an unknown token and an artworkless event are
+  // both "no picture here", so this cannot be used to probe which tokens exist.
+  if (!invitation) return null;
+
+  const { event } = invitation;
+  const artwork = resolveArtwork(event);
+  if (!artwork) return null;
+
+  if (!artwork.startsWith(`/api/events/${event.id}/card`)) return { kind: 'url', url: artwork };
+
+  const stored = await prisma.event.findUnique({
+    where: { id: event.id },
+    select: { cardImageData: true, cardImageMime: true },
+  });
+
+  if (!stored?.cardImageData || !stored.cardImageMime) return null;
+  return { kind: 'bytes', data: stored.cardImageData, mime: stored.cardImageMime };
 }
 
 /**

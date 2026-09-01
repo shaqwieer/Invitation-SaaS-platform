@@ -13,6 +13,19 @@ export interface RateLimitConfig {
   otp: RateLimitRule;
   /** Public invite-token lookups. Tight, because this is the enumeration surface. */
   inviteLookup: RateLimitRule;
+  /**
+   * The card picture behind an invite token — the image WhatsApp fetches to draw
+   * a link preview.
+   *
+   * Looser than `inviteLookup` because the caller is usually the *host*: their
+   * phone fetches one preview per guest as they tap down the send queue, and
+   * every guest's own device fetches it again on top. At 30/min a host sending
+   * briskly would start handing out link previews that render for some guests
+   * and not others, which reads as a broken feature rather than a rate limit.
+   * The endpoint is still a token oracle, so it is still capped — 60 bits of
+   * token remains unguessable at any limit a crawler could survive.
+   */
+  inviteAsset: RateLimitRule;
   /** Guest RSVP submissions. */
   rsvp: RateLimitRule;
   /**
@@ -45,6 +58,7 @@ const PRODUCTION_RATE_LIMITS: RateLimitConfig = {
   auth: { windowMs: 15 * MINUTE, limit: 10 },
   otp: { windowMs: 10 * MINUTE, limit: 3 },
   inviteLookup: { windowMs: MINUTE, limit: 30 },
+  inviteAsset: { windowMs: MINUTE, limit: 120 },
   rsvp: { windowMs: 10 * MINUTE, limit: 20 },
   fileImport: { windowMs: 15 * MINUTE, limit: 30 },
   scan: { windowMs: 15 * MINUTE, limit: 600 },
@@ -127,6 +141,7 @@ export interface RateLimiters {
   auth: RateLimitRequestHandler;
   otp: RateLimitRequestHandler;
   inviteLookup: RateLimitRequestHandler;
+  inviteAsset: RateLimitRequestHandler;
   rsvp: RateLimitRequestHandler;
   fileImport: RateLimitRequestHandler;
   scan: RateLimitRequestHandler;
@@ -146,6 +161,7 @@ export function createRateLimiters(config: RateLimitConfig = DEFAULT_RATE_LIMITS
     auth: build(config.auth, 'AUTH_RATE_LIMITED'),
     otp: build(config.otp, 'OTP_RATE_LIMITED'),
     inviteLookup: build(config.inviteLookup, 'INVITE_RATE_LIMITED'),
+    inviteAsset: build(config.inviteAsset, 'INVITE_RATE_LIMITED'),
     rsvp: build(config.rsvp, 'RSVP_RATE_LIMITED'),
     fileImport: build(config.fileImport, 'IMPORT_RATE_LIMITED'),
     scan: build(config.scan, 'SCAN_RATE_LIMITED', {
