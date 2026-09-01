@@ -11,13 +11,25 @@ import {
   type RespondInput,
 } from '@da3wa/shared';
 import { prisma } from '../../lib/prisma.js';
+import { templatePreviewUrl } from '../../lib/templatePreview.js';
 import { env } from '../../config/env.js';
 import { signQrToken } from '../../lib/qr.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
 
+/** Everything `resolveArtwork` needs of a template, plus the key the guest page reads. */
+const TEMPLATE_SELECT = {
+  id: true,
+  key: true,
+  previewImageUrl: true,
+  previewImageMime: true,
+  previewImageVersion: true,
+} as const;
+
+type LoadedTemplate = Pick<Template, keyof typeof TEMPLATE_SELECT>;
+
 type LoadedInvitation = Invitation & {
   guest: Guest;
-  event: Event & { template: Pick<Template, 'key' | 'previewImageUrl'> | null };
+  event: Event & { template: LoadedTemplate | null };
 };
 
 /**
@@ -42,7 +54,7 @@ type LoadedInvitation = Invitation & {
 type ArtworkSource = Pick<
   Event,
   'id' | 'cardDesignMode' | 'customCardUrl' | 'cardImageMime' | 'cardImageVersion'
-> & { template: Pick<Template, 'previewImageUrl'> | null };
+> & { template: LoadedTemplate | null };
 
 function resolveArtwork(event: ArtworkSource): string | null {
   const uploaded = event.cardImageMime
@@ -56,7 +68,10 @@ function resolveArtwork(event: ArtworkSource): string | null {
       return uploaded;
     case 'TEMPLATE':
     default:
-      return uploaded ?? event.template?.previewImageUrl ?? null;
+      // Through the shared rule, not the raw column: every template in the
+      // gallery is an upload, and reading `previewImageUrl` alone showed a
+      // guest nothing until the operator delivered the tailored card.
+      return uploaded ?? (event.template ? templatePreviewUrl(event.template) : null);
   }
 }
 
@@ -73,7 +88,7 @@ async function load(token: string): Promise<LoadedInvitation> {
     where: { token },
     include: {
       guest: true,
-      event: { include: { template: { select: { key: true, previewImageUrl: true } } } },
+      event: { include: { template: { select: TEMPLATE_SELECT } } },
     },
   });
 
@@ -166,7 +181,7 @@ export async function cardArtworkFor(token: string): Promise<InviteArtwork | nul
           customCardUrl: true,
           cardImageMime: true,
           cardImageVersion: true,
-          template: { select: { previewImageUrl: true } },
+          template: { select: TEMPLATE_SELECT },
         },
       },
     },

@@ -23,6 +23,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { prisma } from '../../lib/prisma.js';
 import { audit } from '../../lib/audit.js';
+import { templatePreviewUrl } from '../../lib/templatePreview.js';
 import { BadRequestError } from '../../lib/errors.js';
 import multer from 'multer';
 import { updateSettingsSchema, type UpdateSettingsInput } from '@da3wa/shared';
@@ -471,15 +472,15 @@ export function createAdminRouter(): Router {
       });
 
       res.json({
-        templates: templates.map(
-          ({ previewImageMime, previewImageVersion, previewImageUrl, ...template }) => ({
+        templates: templates.map(({ previewImageMime, previewImageVersion, ...template }) => ({
+          ...template,
+          previewImageUrl: templatePreviewUrl({
             ...template,
-            previewImageUrl: previewImageMime
-              ? `/api/templates/${template.id}/preview?v=${previewImageVersion}`
-              : previewImageUrl,
-            hasPreviewImage: previewImageMime !== null,
+            previewImageMime,
+            previewImageVersion,
           }),
-        ),
+          hasPreviewImage: previewImageMime !== null,
+        })),
       });
     } catch (err) {
       next(err);

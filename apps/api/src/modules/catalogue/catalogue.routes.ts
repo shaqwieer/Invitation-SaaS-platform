@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
+import { templatePreviewUrl } from '../../lib/templatePreview.js';
 
 /**
  * The buyable catalogue, as a host sees it.
@@ -55,17 +56,17 @@ export function createCatalogueRouter(): Router {
 
       res.json({
         packages,
-        // One `previewImageUrl` for the client, resolved here so the gallery
-        // never has to know that a preview can come from either an upload or a
-        // pasted URL. Uploaded bytes win: they are the operator's own file.
-        templates: templates.map(
-          ({ previewImageMime, previewImageVersion, previewImageUrl, ...template }) => ({
+        // One `previewImageUrl` for the client, resolved so the gallery never
+        // has to know that a preview can come from either an upload or a pasted
+        // URL.
+        templates: templates.map(({ previewImageMime, previewImageVersion, ...template }) => ({
+          ...template,
+          previewImageUrl: templatePreviewUrl({
             ...template,
-            previewImageUrl: previewImageMime
-              ? `/api/templates/${template.id}/preview?v=${previewImageVersion}`
-              : previewImageUrl,
+            previewImageMime,
+            previewImageVersion,
           }),
-        ),
+        })),
       });
     } catch (err) {
       next(err);

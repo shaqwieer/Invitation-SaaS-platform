@@ -366,6 +366,31 @@ describe('GET /api/invite/:token/card', () => {
     expect(res.headers.location).toBe('/api/templates/preview-path');
   });
 
+  it('redirects to an uploaded template preview, not the empty URL column', async () => {
+    // Every template in the live gallery is an upload, and `previewImageUrl`
+    // stays null for those — reading it alone left the guest with no card at
+    // all until the operator delivered the tailored version.
+    const template = await prisma.template.create({
+      data: {
+        key: `tpl-${Math.random().toString(36).slice(2, 8)}`,
+        nameAr: 'زهري عصري',
+        nameEn: 'Modern rose',
+        previewImageData: Buffer.from('89504e470d0a1a0a', 'hex'),
+        previewImageMime: 'image/png',
+        previewImageVersion: 4,
+      },
+    });
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { cardDesignMode: 'TEMPLATE', templateId: template.id },
+    });
+
+    const res = await request(app).get(`/api/invite/${token}/card`).redirects(0);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(`/api/templates/${template.id}/preview?v=4`);
+  });
+
   it('404s for an artworkless event and for an unknown token alike', async () => {
     const plain = await request(app).get(`/api/invite/${token}/card`);
     const unknown = await request(app).get('/api/invite/nosuchtoken12/card');
